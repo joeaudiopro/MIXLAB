@@ -43,6 +43,31 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
 .pfl-led{width:7px;height:7px;border-radius:50%;background:#333;border:1px solid #444;transition:all .1s;}
 .pfl-led.on{background:var(--yellow);box-shadow:0 0 5px var(--yellow);}
 
+/* PFL OUTPUT SELECTOR */
+.pfl-out-wrap{
+  display:flex;align-items:center;gap:5px;
+  padding:3px 8px;
+  border:1px solid #2a2a00;
+  border-radius:3px;
+  background:#1a1a00;
+}
+.pfl-out-label{font-size:8px;color:var(--yellow);letter-spacing:1px;white-space:nowrap;}
+.pfl-out-select{
+  font-family:'Share Tech Mono',monospace;font-size:8px;
+  background:#111;color:var(--text);
+  border:1px solid #333;border-radius:2px;
+  padding:2px 4px;outline:none;cursor:pointer;max-width:150px;
+}
+.pfl-out-select:focus{border-color:var(--yellow);}
+.pfl-out-btn{
+  font-family:'Share Tech Mono',monospace;font-size:8px;
+  padding:2px 6px;border:1px solid #444;border-radius:2px;
+  background:#1a1a1a;color:var(--dim);cursor:pointer;
+  letter-spacing:.5px;transition:all .15s;white-space:nowrap;
+}
+.pfl-out-btn:hover{border-color:var(--yellow);color:var(--yellow);}
+.pfl-out-btn.active{border-color:var(--yellow);color:#000;background:var(--yellow);}
+
 /* Scene recall */
 .scene-group{display:flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #2a3a2a;border-radius:3px;background:#141a14;}
 .scene-label{font-size:8px;color:#60a060;letter-spacing:2px;}
@@ -872,6 +897,14 @@ body.splash-active #appRoot{
     <span class="pfl-label">PFL</span>
     <span class="pfl-active-label" id="pflActiveLabel">—</span>
   </div>
+  <!-- PFL OUTPUT -->
+  <div class="pfl-out-wrap">
+    <span class="pfl-out-label">🎧 PFL OUT</span>
+    <select class="pfl-out-select" id="pflOutSelect">
+      <option value="default">Salida principal</option>
+    </select>
+    <button class="pfl-out-btn" id="pflOutScanBtn">⟳</button>
+  </div>
   <!-- SCENE RECALL (digital-only) -->
   <div class="scene-group digital-only" id="sceneGroup">
     <span class="scene-label">SCENE</span>
@@ -908,6 +941,20 @@ body.splash-active #appRoot{
       <button class="input-scan-btn" id="inputScanBtn">SCAN</button>
       <button class="input-scan-btn" id="inputConnectBtn" style="display:none;background:#001a0a;border-color:var(--green);color:var(--green);">CONECTAR</button>
     </div>
+    <!-- Manual channel count -->
+    <div class="input-device-row" style="margin-top:4px;">
+      <span class="input-device-label">CANALES</span>
+      <div style="display:flex;align-items:center;gap:6px;flex:1;">
+        <input type="number" id="inputChCount" min="1" max="32" value="2"
+          style="width:52px;font-family:'Share Tech Mono',monospace;font-size:10px;
+                 background:#1a1a1a;color:var(--accent2);border:1px solid #444;
+                 border-radius:3px;padding:3px 6px;outline:none;text-align:center;"
+          title="Número de canales de entrada de tu interfaz"/>
+        <span style="font-size:8px;color:var(--dim);letter-spacing:.5px;">
+          canales — ajusta según tu interfaz (Focusrite 18i8 = 8)
+        </span>
+      </div>
+    </div>
 
     <div class="input-status" id="inputStatus">Sin dispositivo seleccionado</div>
 
@@ -939,6 +986,79 @@ const aux2Bus  =ctx.createGain(); aux2Bus.gain.value=1;
 const fx1Bus   =ctx.createGain(); fx1Bus.gain.value=1;
 const fx2Bus   =ctx.createGain(); fx2Bus.gain.value=1;
 const pflBus   =ctx.createGain(); pflBus.gain.value=1;
+
+// ── PFL OUTPUT CONTEXT ──
+// pflCtx es un AudioContext secundario dedicado al monitor de PFL/Solo.
+// Permite enrutar el PFL a un dispositivo de salida diferente (auriculares)
+// usando setSinkId(), independiente de la mezcla principal.
+let pflCtx = null;
+let pflCtxGain = null;
+let pflOutDeviceId = 'default';
+
+async function initPflCtx(deviceId){
+  // Cerrar contexto anterior
+  if(pflCtx && pflCtx.state !== 'closed'){
+    try{ await pflCtx.close(); }catch(e){}
+  }
+  pflCtx = new (window.AudioContext || window.webkitAudioContext)();
+  pflCtxGain = pflCtx.createGain();
+  pflCtxGain.gain.value = 1;
+  pflCtxGain.connect(pflCtx.destination);
+
+  // Aplicar setSinkId si el dispositivo no es el default
+  if(deviceId && deviceId !== 'default' && pflCtx.setSinkId){
+    try{
+      await pflCtx.setSinkId(deviceId);
+      console.log('PFL salida → dispositivo:', deviceId);
+    } catch(e){
+      console.warn('setSinkId no disponible o error:', e.message);
+    }
+  }
+
+  // Conectar pflBus al nuevo contexto usando MediaStreamDestination
+  // Creamos un MediaStream del pflBus y lo capturamos en pflCtx
+  const pflDest = ctx.createMediaStreamDestination();
+  pflBus.connect(pflDest);
+  const pflSource = pflCtx.createMediaStreamSource(pflDest.stream);
+  pflSource.connect(pflCtxGain);
+
+  pflOutDeviceId = deviceId || 'default';
+}
+
+// Inicializar pflCtx con la salida default al cargar
+// (se llama después de que el AudioContext principal esté listo)
+async function setupPflOutput(){
+  await initPflCtx('default');
+}
+
+// Escanear dispositivos de salida para el selector PFL
+async function scanPflOutputs(){
+  const selectEl = document.getElementById('pflOutSelect');
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter(d => d.kind === 'audiooutput');
+    selectEl.innerHTML = '';
+    // Opción default siempre primero
+    const defOpt = document.createElement('option');
+    defOpt.value = 'default';
+    defOpt.textContent = '🔊 Salida principal (default)';
+    selectEl.appendChild(defOpt);
+
+    outputs.forEach((d, idx) => {
+      if(d.deviceId === 'default') return; // ya está arriba
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = '🎧 ' + (d.label || 'Salida ' + (idx+1));
+      selectEl.appendChild(opt);
+    });
+
+    // Seleccionar el actual
+    selectEl.value = pflOutDeviceId;
+    showToast('PFL: ' + selectEl.options[selectEl.selectedIndex]?.textContent);
+  } catch(e) {
+    console.warn('Error escaneando salidas:', e);
+  }
+}
 
 // REVERB
 const reverbNode    =ctx.createConvolver();
@@ -1121,22 +1241,9 @@ async function connectInputDevice(deviceId){
     statusEl.className = 'input-status';
     if(ctx.state === 'suspended') await ctx.resume();
 
-    // Paso 1: stream de prueba para leer capacidades reales del dispositivo
-    const probeStream = await navigator.mediaDevices.getUserMedia({
-      audio:{ deviceId:{exact:deviceId}, echoCancellation:false,
-              noiseSuppression:false, autoGainControl:false,
-              channelCount:{ideal:32, min:1} },
-      video:false
-    });
-    const probeTrack = probeStream.getAudioTracks()[0];
-    const probeCaps  = probeTrack.getCapabilities ? probeTrack.getCapabilities() : {};
-    const maxCh      = (probeCaps.channelCount && probeCaps.channelCount.max)
-                       ? probeCaps.channelCount.max
-                       : (probeTrack.getSettings().channelCount || 2);
-    const devLabel   = probeTrack.label || 'Dispositivo';
-    probeStream.getTracks().forEach(t => t.stop());
-
-    const nCh = Math.min(maxCh, 8);
+    // Usar el número de canales especificado manualmente por el usuario
+    const manualCh = parseInt(document.getElementById('inputChCount').value) || 2;
+    const nCh = Math.min(Math.max(1, manualCh), 32);
     statusEl.textContent = `Abriendo ${nCh} canales...`;
 
     // Paso 2: merger + splitter para el grafo multicanal
@@ -1153,6 +1260,7 @@ async function connectInputDevice(deviceId){
     // Paso 3: un stream mono por canal
     const monoStreams = [], monoSources = [];
     let successCh = 0;
+    let devLabel = 'Dispositivo';
 
     for(let c = 0; c < nCh; c++){
       try {
@@ -1161,6 +1269,7 @@ async function connectInputDevice(deviceId){
                   noiseSuppression:false, autoGainControl:false, channelCount:1 },
           video:false
         });
+        if(c === 0) devLabel = ms.getAudioTracks()[0]?.label || 'Dispositivo';
         const src = ctx.createMediaStreamSource(ms);
         src.channelCount          = 1;
         src.channelCountMode      = 'explicit';
@@ -2635,6 +2744,36 @@ const playBtn = document.getElementById('playAll');
 const stopBtn = document.getElementById('stopAll');
 const loopBtn = document.getElementById('loopBtn');
 
+// ── PFL OUTPUT SELECTOR ──
+const pflOutSelect  = document.getElementById('pflOutSelect');
+const pflOutScanBtn = document.getElementById('pflOutScanBtn');
+
+pflOutScanBtn.addEventListener('click', scanPflOutputs);
+
+pflOutSelect.addEventListener('change', async () => {
+  const deviceId = pflOutSelect.value;
+  pflOutScanBtn.textContent = '...';
+  pflOutScanBtn.disabled = true;
+  try {
+    await initPflCtx(deviceId);
+    const label = pflOutSelect.options[pflOutSelect.selectedIndex]?.textContent || deviceId;
+    showToast('🎧 PFL → ' + label);
+    pflOutScanBtn.classList.toggle('active', deviceId !== 'default');
+  } catch(e) {
+    showToast('Error al cambiar salida PFL: ' + e.message);
+  }
+  pflOutScanBtn.textContent = '⟳';
+  pflOutScanBtn.disabled = false;
+});
+
+// Inicializar PFL output y escanear salidas disponibles
+setupPflOutput().then(() => {
+  // Escanear salidas si ya tenemos permiso
+  if(inputManager._permStream || inputManager.stream){
+    scanPflOutputs();
+  }
+});
+
 // STOP starts lit (no audio running)
 stopBtn.classList.add('active');
 
@@ -2828,6 +2967,9 @@ document.getElementById('permGrantBtn').addEventListener('click', async () => {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audioIn = devices.filter(d => d.kind === 'audioinput' && d.deviceId !== '');
     inputManager._scannedDevices = audioIn; // cache for input manager
+
+    // Escanear salidas para PFL ahora que tenemos permiso
+    setTimeout(scanPflOutputs, 500);
 
     // Success visual
     icon.innerHTML = `
