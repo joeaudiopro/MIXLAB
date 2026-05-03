@@ -3200,6 +3200,26 @@ const pflOutScanBtn = document.getElementById('pflOutScanBtn');
 
 pflOutScanBtn.addEventListener('click', scanPflOutputs);
 
+// Auto-refresh when audio devices are connected or disconnected
+// This handles the case where headphones are plugged in after the app opens
+navigator.mediaDevices.addEventListener('devicechange', async () => {
+  // Small delay to let the OS register the new device
+  await new Promise(r => setTimeout(r, 500));
+  await scanPflOutputs();
+  // Also refresh input devices in channel dropdowns
+  if(inputManager._permStream || inputManager.stream){
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioIn = devices.filter(d => d.kind === 'audioinput');
+    if(audioIn.length > 0){
+      inputManager._scannedDevices = audioIn;
+      channels.forEach(ch => {
+        if(typeof ch._refreshDeviceDropdown === 'function') ch._refreshDeviceDropdown();
+      });
+    }
+  }
+  showToast('🔌 Dispositivo de audio detectado — lista actualizada');
+});
+
 pflOutSelect.addEventListener('change', async () => {
   const deviceId = pflOutSelect.value;
   pflOutScanBtn.textContent = '...';
