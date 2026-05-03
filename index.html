@@ -91,7 +91,8 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
 .channel.pfl-on{border-color:var(--yellow)!important;box-shadow:0 0 8px #e8e02022;}
 .ch-number{font-size:9px;color:var(--dim);letter-spacing:2px;}
 .ch-label-wrap{position:relative;width:102px;display:flex;align-items:center;justify-content:center;gap:3px;}
-.ch-label{font-size:10px;color:var(--accent);text-align:center;width:82px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:1px;outline:none;cursor:default;border-bottom:1px dashed transparent;transition:all .15s;}
+.ch-label{font-size:10px;color:var(--accent);text-align:center;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:1px;outline:none;cursor:pointer;border-bottom:1px dashed transparent;transition:all .15s;}
+.ch-label:hover{border-bottom-color:#444;}
 .ch-label.editing{cursor:text;border-bottom-color:var(--accent);background:#111;border-radius:2px;padding:1px 3px;}
 .edit-icon{font-size:9px;color:var(--dim);cursor:pointer;opacity:.5;transition:opacity .15s;user-select:none;}
 .edit-icon:hover{opacity:1;color:var(--accent);}
@@ -2015,14 +2016,14 @@ function createChannel(i){
   // Label
   const lWrap=document.createElement('div');lWrap.className='ch-label-wrap';
   const lEl=document.createElement('div');lEl.className='ch-label';lEl.textContent='CH '+(i+1);lEl.contentEditable=false;
-  const eIcon=document.createElement('span');eIcon.className='edit-icon';eIcon.textContent='✎';
+  lEl.title='Doble clic para editar';
   let editing=false;
-  function startEdit(){editing=true;lEl.contentEditable=true;lEl.classList.add('editing');eIcon.textContent='✔';eIcon.style.color='var(--green)';lEl.focus();const r=document.createRange();r.selectNodeContents(lEl);const s=window.getSelection();s.removeAllRanges();s.addRange(r);}
-  function endEdit(){editing=false;lEl.contentEditable=false;lEl.classList.remove('editing');eIcon.textContent='✎';eIcon.style.color='';}
-  eIcon.addEventListener('click',()=>editing?endEdit():startEdit());
+  function startEdit(){editing=true;lEl.contentEditable=true;lEl.classList.add('editing');lEl.focus();const r=document.createRange();r.selectNodeContents(lEl);const s=window.getSelection();s.removeAllRanges();s.addRange(r);}
+  function endEdit(){editing=false;lEl.contentEditable=false;lEl.classList.remove('editing');}
+  lEl.addEventListener('dblclick',()=>startEdit());
   lEl.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();endEdit();}if(e.key==='Escape')endEdit();});
   lEl.addEventListener('blur',()=>{if(editing)endEdit();});
-  lWrap.appendChild(lEl);lWrap.appendChild(eIcon);el.appendChild(lWrap);
+  lWrap.appendChild(lEl);el.appendChild(lWrap);
 
   // Flags
   const flagRow=document.createElement('div');flagRow.className='ch-flags';
@@ -2097,7 +2098,9 @@ function createChannel(i){
   const dynOut    =ctx.createGain();
   const faderNode =ctx.createGain();         faderNode.gain.value=0;
   const panNode   =ctx.createStereoPanner();
-  const analyser  =ctx.createAnalyser();     analyser.fftSize=1024;
+  const analyser  =ctx.createAnalyser();
+  analyser.fftSize = 4096;  // higher resolution for RTA
+  analyser.smoothingTimeConstant = 0.8; // smooth ballistics
   const analyserBuf=new Uint8Array(analyser.fftSize);
 
   trimNode.connect(hpfNode); hpfNode.connect(lowEQ); lowEQ.connect(midEQ); midEQ.connect(highEQ);
@@ -2180,18 +2183,20 @@ function createChannel(i){
     if(typeof setFocusedChannel === 'function'){
       setFocusedChannel({
         label: lEl.textContent + ' — EQ & DYN',
-        loFilter:  lowEQ,
-        midFilter: midEQ,
-        hiFilter:  highEQ,
-        hpfFilter: hpfNode,
+        loFilter:   lowEQ,
+        midFilter:  midEQ,
+        hiFilter:   highEQ,
+        hpfFilter:  hpfNode,
+        rtaAnalyser: analyser,
+        rtaBuf:      new Uint8Array(analyser.frequencyBinCount),
         get hpfOn()    { return hpfActive; },
         get compThr()  { return cThrK.getValue(); },
         get compRatio(){ return cRatK.getValue(); },
         get compKnee() { return cKneK.getValue(); },
         get gateThr()  { return gThrK.getValue(); },
-        get compGR()   { return dyn.getCompGR(); },     // live GR in dB
-        get compIsOn() { return compH.isOn(); },         // compressor enabled?
-        get gateIsOn() { return gateH.isOn(); },         // gate enabled?
+        get compGR()   { return dyn.getCompGR(); },
+        get compIsOn() { return compH.isOn(); },
+        get gateIsOn() { return gateH.isOn(); },
       });
     }
   }
@@ -2703,8 +2708,8 @@ analyserDisplay.appendChild(adHeader);
 // EQ Canvas
 const eqCanvas = document.createElement('canvas');
 eqCanvas.width  = 320;
-eqCanvas.height = 100;
-eqCanvas.style.cssText = 'width:100%;height:100px;border-radius:4px;background:#080808;display:block;';
+eqCanvas.height = 130;
+eqCanvas.style.cssText = 'width:100%;height:130px;border-radius:4px;background:#080808;display:block;';
 analyserDisplay.appendChild(eqCanvas);
 
 // Dynamics Canvas
@@ -2799,21 +2804,21 @@ function drawEQ() {
   // Frequency grid
   const freqMarks = [20,50,100,200,500,1000,2000,5000,10000,20000];
   const fToX = f => (Math.log10(f/20) / Math.log10(20000/20)) * W;
+  const dbToY = db => H/2 - (db/24)*(H/2-4);
 
   g.strokeStyle='#1a1a1a'; g.lineWidth=1;
   freqMarks.forEach(f=>{
     const x=fToX(f);
     g.beginPath();g.moveTo(x,0);g.lineTo(x,H);g.stroke();
   });
-
-  const dbToY = db => H/2 - (db/24)*(H/2-4);
   [-24,-18,-12,-6,0,6,12,18,24].forEach(db=>{
     const y=dbToY(db);
     g.strokeStyle = db===0?'#303030':'#1a1a1a';
     g.lineWidth   = db===0?1:.5;
     g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.stroke();
   });
-  g.fillStyle='#333';g.font='7px Share Tech Mono';g.fillText('0dB',2,dbToY(0)-2);
+  g.fillStyle='#333';g.font='7px Share Tech Mono';
+  g.fillText('0dB',2,dbToY(0)-2);
   g.fillText('+24',2,dbToY(22));
   g.fillText('-24',2,dbToY(-22));
 
@@ -2821,19 +2826,64 @@ function drawEQ() {
     g.strokeStyle='#2a2a2a';g.lineWidth=1;
     g.beginPath();g.moveTo(0,H/2);g.lineTo(W,H/2);g.stroke();
   } else {
-    const { loFilter, midFilter, hiFilter, hpfFilter, hpfOn } = focusedChannel;
+    const { loFilter, midFilter, hiFilter, hpfFilter, hpfOn,
+            rtaAnalyser, rtaBuf } = focusedChannel;
+
+    // ── RTA SPECTRUM (drawn first, behind EQ curve) ──
+    if(rtaAnalyser && rtaBuf){
+      rtaAnalyser.getByteFrequencyData(rtaBuf);
+      const nyquist   = ctx.sampleRate / 2;
+      const binCount  = rtaAnalyser.frequencyBinCount;
+
+      // Filled spectrum
+      g.beginPath();
+      g.moveTo(0, H);
+      for(let px = 0; px < W; px++){
+        const f       = 20 * Math.pow(1000, px / (W-1)); // log freq
+        const binIdx  = Math.round(f / nyquist * binCount);
+        const val     = rtaBuf[Math.min(binIdx, binCount-1)] / 255; // 0–1
+        // Map to dB range: val=1 → +24dB top, val=0 → bottom
+        const dbVal   = (val - 0.5) * 60; // approx mapping
+        const y       = dbToY(Math.max(-24, Math.min(24, dbVal)));
+        if(px === 0) g.moveTo(px, H);
+        g.lineTo(px, y);
+      }
+      g.lineTo(W, H);
+      g.closePath();
+      // Gradient fill: cyan at top, transparent at bottom
+      const grad = g.createLinearGradient(0,0,0,H);
+      grad.addColorStop(0,   'rgba(32,200,232,0.25)');
+      grad.addColorStop(0.5, 'rgba(32,200,232,0.08)');
+      grad.addColorStop(1,   'rgba(32,200,232,0)');
+      g.fillStyle = grad;
+      g.fill();
+
+      // Spectrum outline
+      g.strokeStyle = 'rgba(32,200,232,0.35)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for(let px = 0; px < W; px++){
+        const f      = 20 * Math.pow(1000, px / (W-1));
+        const binIdx = Math.round(f / nyquist * binCount);
+        const val    = rtaBuf[Math.min(binIdx, binCount-1)] / 255;
+        const dbVal  = (val - 0.5) * 60;
+        const y      = dbToY(Math.max(-24, Math.min(24, dbVal)));
+        if(px===0) g.moveTo(px,y); else g.lineTo(px,y);
+      }
+      g.stroke();
+    }
+
     const N = W;
 
-    // Draw combined curve
-    g.lineWidth=2;g.strokeStyle='#e8a020';
-    g.shadowColor='#e8a02066';g.shadowBlur=6;
+    // ── EQ CURVE (drawn on top of RTA) ──
+    g.lineWidth=2.5;g.strokeStyle='#e8a020';
+    g.shadowColor='#e8a02088';g.shadowBlur=8;
     g.beginPath();
     for(let px=0;px<N;px++){
       const f  = 20 * Math.pow(1000, px/(N-1));
       let db   = biquadMagnitude(loFilter,f)
                + biquadMagnitude(midFilter,f)
                + biquadMagnitude(hiFilter,f);
-      // Add HPF contribution when active
       if(hpfOn && hpfFilter) db += biquadMagnitude(hpfFilter,f);
       const y  = dbToY(Math.max(-24,Math.min(24,db)));
       if(px===0)g.moveTo(px,y);else g.lineTo(px,y);
@@ -2841,7 +2891,7 @@ function drawEQ() {
     g.stroke();
     g.shadowBlur=0;
 
-    // Draw HPF curve separately in cyan when active
+    // HPF curve
     if(hpfOn && hpfFilter){
       g.lineWidth=1;g.strokeStyle='#20c8e855';
       g.setLineDash([3,3]);
@@ -2854,7 +2904,6 @@ function drawEQ() {
       }
       g.stroke();
       g.setLineDash([]);
-      // HPF freq label
       const hpfF = hpfFilter.frequency.value;
       const hx   = fToX(hpfF);
       g.strokeStyle='#20c8e866';g.lineWidth=1;
