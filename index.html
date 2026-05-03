@@ -2413,14 +2413,27 @@ function createChannel(i){
     buffer=await ctx.decodeAudioData(ab);
     fl.textContent=e.target.files[0].name.substring(0,15);fl.classList.add('loaded');
   });
-  function play(when){
+  function play(when, isLoop = false){
     if(!buffer) return;
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.loop   = window._loopEnabled || false;  // loop mode
     src.connect(trimNode);
     src.start(when);
     activeSources.push(src);
+
+    // Loop: schedule next playback precisely at end of buffer
+    // Using onended + ctx.currentTime for sample-accurate restart
+    if(isLoop || window._loopEnabled){
+      src.onended = () => {
+        // Remove from activeSources
+        const idx = activeSources.indexOf(src);
+        if(idx > -1) activeSources.splice(idx, 1);
+        // Only reschedule if loop is still enabled and we haven't been stopped
+        if(window._loopEnabled && !src._stopped){
+          play(ctx.currentTime, true);
+        }
+      };
+    }
   }
 
   // ── SOURCE SWITCH LOGIC ──
@@ -2660,13 +2673,12 @@ function createChannel(i){
 }
 
 function updateMix(){
-  const anySolo = channels.some(c => c.isSolo);
+  // S/PFL solo does NOT affect the master mix — all channels always play on master.
+  // Solo only routes that channel's pre-fader signal to the PFL output (headphones).
+  // Only mute affects the master mix.
   channels.forEach(ch => {
-    // Channel is audible when: no solo active (and not muted), OR this channel is the solo'd one
-    const audible = anySolo ? ch.isSolo : !ch.isMuted;
-    // Fader
+    const audible = !ch.isMuted;
     ch.faderNode.gain.value = audible ? ch.volume : 0;
-    // Sends: apply desired gain when audible, silence when not
     ch.sends.forEach(s => {
       s.sendG.gain.value = audible ? s.desiredGain : 0;
     });
@@ -3231,8 +3243,10 @@ window._loopEnabled = false;
 loopBtn.addEventListener('click', () => {
   window._loopEnabled = !window._loopEnabled;
   loopBtn.classList.toggle('loop-on', window._loopEnabled);
-  // Apply loop to already-running sources immediately
-  activeSources.forEach(s => { try{ s.loop = window._loopEnabled; }catch(e){} });
+  if(!window._loopEnabled){
+    // Disable loop — mark sources so onended won't restart them
+    activeSources.forEach(s => { s._stopped = true; });
+  }
   showToast(window._loopEnabled ? '⟳ Loop activado' : '⟳ Loop desactivado');
 });
 
@@ -3245,7 +3259,11 @@ playBtn.addEventListener('click', () => {
 });
 
 stopBtn.addEventListener('click', () => {
-  activeSources.forEach(s => { try { s.stop(); } catch {} });
+  // Mark stopped BEFORE calling stop() so onended doesn't restart
+  activeSources.forEach(s => {
+    s._stopped = true;
+    try { s.stop(); } catch {}
+  });
   activeSources = [];
   stopBtn.classList.add('active');
   playBtn.classList.remove('active');
