@@ -1086,12 +1086,13 @@ async function scanAudioInputs(){
 }
 
 // ── CONNECT ──
-// Abre el dispositivo seleccionado SIN cerrar el _permStream.
-// El stream del dispositivo real es independiente del stream de permiso.
+// Chrome no entrega más de 2 canales por stream.
+// Solución: usamos getCapabilities() para detectar el máximo real,
+// luego abrimos UN stream mono por canal y los unimos con ChannelMerger.
 async function connectInputDevice(deviceId){
-  const statusEl = document.getElementById('inputStatus');
-  const gridEl   = document.getElementById('inputChGrid');
-  const selectEl = document.getElementById('inputDeviceSelect');
+  const statusEl  = document.getElementById('inputStatus');
+  const gridEl    = document.getElementById('inputChGrid');
+  const selectEl  = document.getElementById('inputDeviceSelect');
 
   if(!deviceId){
     statusEl.textContent = 'Selecciona un dispositivo primero.';
@@ -1099,91 +1100,99 @@ async function connectInputDevice(deviceId){
     return;
   }
 
-  // Cerrar stream anterior del dispositivo (NO el _permStream)
+  // Cerrar streams anteriores
+  if(inputManager.monoStreams){
+    inputManager.monoStreams.forEach(s => s.getTracks().forEach(t => t.stop()));
+  }
   if(inputManager.stream){
     inputManager.stream.getTracks().forEach(t => t.stop());
-    if(inputManager.sourceNode){ try{ inputManager.sourceNode.disconnect(); }catch(e){} }
-    inputManager.stream      = null;
-    inputManager.sourceNode  = null;
-    inputManager.splitter    = null;
-    inputManager.numChannels = 0;
-    inputManager.assignments = {};
+    if(inputManager.sourceNode) try{ inputManager.sourceNode.disconnect(); }catch(e){}
   }
+  inputManager.stream       = null;
+  inputManager.sourceNode   = null;
+  inputManager.splitter     = null;
+  inputManager.monoStreams  = [];
+  inputManager.monoSources  = [];
+  inputManager.numChannels  = 0;
+  inputManager.assignments  = {};
 
   try {
-    statusEl.textContent = 'Conectando a dispositivo...';
+    statusEl.textContent = 'Detectando canales disponibles...';
     statusEl.className = 'input-status';
-
     if(ctx.state === 'suspended') await ctx.resume();
 
-    // Abrir stream del dispositivo específico
-    // Nota: Chrome limita channelCount a 2 por defecto.
-    // Para interfaces multicanal necesitamos crear un AudioContext separado
-    // con channelCount explícito o usar el contexto existente con setSinkId.
-    // La forma más compatible: pedir el stream sin restricción de canales
-    // y luego leer cuántos realmente nos dieron.
-    const constraints = {
-      audio: {
-        deviceId:          deviceId === 'default' ? undefined : { exact: deviceId },
-        echoCancellation:  false,
-        noiseSuppression:  false,
-        autoGainControl:   false,
-        latency:           0,
-        // Solicitar la máxima cantidad de canales posible
-        channelCount:      { min: 1, ideal: 8, max: 32 },
-      },
-      video: false
-    };
+    // Paso 1: stream de prueba para leer capacidades reales del dispositivo
+    const probeStream = await navigator.mediaDevices.getUserMedia({
+      audio:{ deviceId:{exact:deviceId}, echoCancellation:false,
+              noiseSuppression:false, autoGainControl:false,
+              channelCount:{ideal:32, min:1} },
+      video:false
+    });
+    const probeTrack = probeStream.getAudioTracks()[0];
+    const probeCaps  = probeTrack.getCapabilities ? probeTrack.getCapabilities() : {};
+    const maxCh      = (probeCaps.channelCount && probeCaps.channelCount.max)
+                       ? probeCaps.channelCount.max
+                       : (probeTrack.getSettings().channelCount || 2);
+    const devLabel   = probeTrack.label || 'Dispositivo';
+    probeStream.getTracks().forEach(t => t.stop());
 
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    const track  = stream.getAudioTracks()[0];
+    const nCh = Math.min(maxCh, 8);
+    statusEl.textContent = `Abriendo ${nCh} canales...`;
 
-    // Leer cuántos canales realmente se abrieron
-    const settings = track.getSettings();
-    const caps     = track.getCapabilities ? track.getCapabilities() : {};
-    // Intentar applyConstraints para subir el channelCount si el dispositivo soporta más
-    const maxCh = (caps.channelCount && caps.channelCount.max) ? caps.channelCount.max : (settings.channelCount || 1);
-    if(maxCh > (settings.channelCount || 1)){
-      try{
-        await track.applyConstraints({ channelCount: { ideal: maxCh } });
-      }catch(e){ console.warn('applyConstraints channelCount:', e); }
-    }
-    const nCh = Math.max(1, track.getSettings().channelCount || settings.channelCount || 1);
-
-    inputManager.stream      = stream;
-    inputManager.numChannels = nCh;
-    inputManager.deviceId    = deviceId;
-
-    // Grafo de audio multicanal
-    // CRÍTICO: hay que configurar el sourceNode para que no mezcle a estéreo
-    const source = ctx.createMediaStreamSource(stream);
-    // Forzar que el nodo fuente mantenga todos los canales originales
-    source.channelCount          = nCh;
-    source.channelCountMode      = 'explicit';
-    source.channelInterpretation = 'discrete';
+    // Paso 2: merger + splitter para el grafo multicanal
+    const merger = ctx.createChannelMerger(nCh);
+    merger.channelCountMode      = 'explicit';
+    merger.channelInterpretation = 'discrete';
 
     const splitter = ctx.createChannelSplitter(nCh);
-    // El splitter también debe estar en modo discreto
     splitter.channelCount          = nCh;
     splitter.channelCountMode      = 'explicit';
     splitter.channelInterpretation = 'discrete';
+    merger.connect(splitter);
 
-    source.connect(splitter);
-    inputManager.sourceNode = source;
-    inputManager.splitter   = splitter;
-    inputManager.assignments = {};
+    // Paso 3: un stream mono por canal
+    const monoStreams = [], monoSources = [];
+    let successCh = 0;
 
-    // Reconectar canales que ya tenían asignación
+    for(let c = 0; c < nCh; c++){
+      try {
+        const ms = await navigator.mediaDevices.getUserMedia({
+          audio:{ deviceId:{exact:deviceId}, echoCancellation:false,
+                  noiseSuppression:false, autoGainControl:false, channelCount:1 },
+          video:false
+        });
+        const src = ctx.createMediaStreamSource(ms);
+        src.channelCount          = 1;
+        src.channelCountMode      = 'explicit';
+        src.channelInterpretation = 'discrete';
+        src.connect(merger, 0, c);
+        monoStreams.push(ms);
+        monoSources.push(src);
+        successCh++;
+      } catch(e) {
+        console.warn(`Canal ${c+1} no disponible:`, e.message);
+        break;
+      }
+    }
+
+    inputManager.monoStreams  = monoStreams;
+    inputManager.monoSources  = monoSources;
+    inputManager.splitter     = splitter;
+    inputManager._merger      = merger;
+    inputManager.numChannels  = successCh;
+    inputManager.deviceId     = deviceId;
+
+    // Reconectar asignaciones previas
     channels.forEach(ch => {
-      if(ch.inputSrcIdx !== null && ch.inputSrcIdx < nCh)
+      if(ch.inputSrcIdx !== null && ch.inputSrcIdx < successCh)
         _connectSplitterToChannel(ch.inputSrcIdx, ch);
     });
 
-    // Grid de canales disponibles
+    // Grid de canales
     gridEl.innerHTML = '';
-    for(let c = 0; c < nCh; c++){
+    for(let c = 0; c < successCh; c++){
       const badge = document.createElement('div');
-      badge.className = 'input-ch-badge';
+      badge.className   = 'input-ch-badge';
       badge.textContent = 'IN ' + (c+1);
       badge.dataset.chIdx = c;
       badge.addEventListener('click', () => {
@@ -1193,32 +1202,28 @@ async function connectInputDevice(deviceId){
       });
       gridEl.appendChild(badge);
     }
-
     updateInputGrid();
     document.getElementById('inputMgrBtn').classList.add('live');
 
-    // Re-enumerar para actualizar labels con los nombres reales
+    // Re-enumerar con nombres reales
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audioIn = devices.filter(d => d.kind === 'audioinput');
     selectEl.innerHTML = '';
-    audioIn.forEach((d, idx) => {
+    audioIn.forEach((d,idx) => {
       const opt = document.createElement('option');
       opt.value = d.deviceId || 'default';
-      opt.textContent = d.label || 'Dispositivo ' + (idx+1);
-      if(d.deviceId === deviceId || (!d.deviceId && deviceId === 'default')) opt.selected = true;
+      opt.textContent = d.label || 'Dispositivo '+(idx+1);
+      if(d.deviceId === deviceId) opt.selected = true;
       selectEl.appendChild(opt);
     });
 
-    const devName = track.label || 'Dispositivo conectado';
-    statusEl.textContent = `✔ ${devName}  ·  ${nCh} canal(es) disponible(s)`;
+    statusEl.textContent = `✔ ${devLabel}  ·  ${successCh} canal(es) disponible(s)`;
     statusEl.className = 'input-status ok';
 
   } catch(e) {
-    statusEl.textContent = e.name === 'NotAllowedError'
-      ? 'Permiso denegado para este dispositivo.'
-      : e.name === 'NotFoundError'
-      ? 'Dispositivo no encontrado. ¿Está conectado?'
-      : 'Error al conectar: ' + e.message;
+    statusEl.textContent = e.name === 'NotAllowedError' ? 'Permiso denegado.'
+      : e.name === 'NotFoundError' ? 'Dispositivo no encontrado.'
+      : 'Error: ' + e.message;
     statusEl.className = 'input-status err';
   }
 }
