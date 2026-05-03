@@ -31,8 +31,10 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
 .btn.stop{border-color:var(--red);color:var(--red);}
 .btn.play:hover{background:var(--green);color:#000;}
 .btn.stop:hover{background:var(--red);color:#fff;}
-/* Active transport states */
-.btn.loop-on{border-color:var(--accent2);color:var(--accent2);background:#001a1a;box-shadow:0 0 8px #20c8e844;}
+/* Active transport states — fully lit when engaged */
+.btn.play.active{background:var(--green);color:#000;box-shadow:0 0 14px #20e88099;border-color:var(--green);}
+.btn.stop.active{background:var(--red);color:#fff;box-shadow:0 0 14px #e8202099;border-color:var(--red);}
+.btn.loop-on{background:var(--accent2);color:#000;border-color:var(--accent2);box-shadow:0 0 14px #20c8e899;}
 .listen-btn{font-family:'Share Tech Mono',monospace;font-size:10px;padding:4px 9px;border:1px solid #444;border-radius:2px;background:#222;color:var(--dim);cursor:pointer;letter-spacing:1px;transition:all .15s;}
 .listen-btn.active{background:var(--accent2);color:#000;border-color:var(--accent2);}
 
@@ -200,6 +202,28 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
 .tap-btn:hover{background:#261a3a;border-color:var(--purple);}
 .tap-btn.flash{background:var(--purple);color:#000;}
 .tap-bpm{font-size:8px;color:#888;text-align:center;letter-spacing:1px;}
+
+/* DCA GROUP HIGHLIGHT */
+.channel.dca-highlight-A{ border-color:#60a0ff !important; box-shadow:0 0 10px #60a0ff33; }
+.channel.dca-highlight-B{ border-color:#a060ff !important; box-shadow:0 0 10px #a060ff33; }
+.channel.dca-highlight-C{ border-color:#20e880 !important; box-shadow:0 0 10px #20e88033; }
+
+/* CHANNEL COLOR BAR */
+.ch-color-bar{
+  width:100%;height:5px;border-radius:3px;
+  cursor:pointer;
+  margin-bottom:2px;
+  transition:filter .2s;
+  position:relative;
+}
+.ch-color-bar:hover{ filter:brightness(1.3); }
+.ch-color-bar::after{
+  content:'';position:absolute;inset:0;
+  border-radius:3px;
+  background:rgba(255,255,255,0);
+  transition:background .2s;
+}
+.ch-color-bar:hover::after{ background:rgba(255,255,255,0.15); }
 
 /* DCA MASTER */
 .dca-master-section{background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:8px;display:flex;gap:6px;}
@@ -1996,6 +2020,30 @@ function createChannel(i){
   const el=document.createElement('div');el.className='channel';
   ['screw-tl','screw-tr'].forEach(c=>{const s=document.createElement('div');s.className='screw '+c;el.appendChild(s);});
 
+  // ── CHANNEL COLOR BAR (top) ──
+  const CH_COLORS=['#e82020','#e86020','#e8a020','#e8e020','#20e860','#20e8c0','#20a0e8','#6060e8','#a020e8','#e820a0','#e8e8e8','#888888'];
+  let chColor='#2a2a2a';
+  const colorBarTop=document.createElement('div');
+  colorBarTop.className='ch-color-bar';
+  colorBarTop.style.cssText=`background:${chColor};position:relative;`;
+  colorBarTop.title='Clic para elegir color del canal';
+  el.appendChild(colorBarTop);
+
+  // Color picker
+  let pickerOpen=false;
+  const picker=document.createElement('div');picker.className='color-picker-popup';picker.style.display='none';
+  CH_COLORS.forEach(c=>{
+    const sw=document.createElement('div');sw.className='color-swatch';sw.style.background=c;
+    sw.addEventListener('click',e=>{e.stopPropagation();chColor=c;colorBarTop.style.background=c;if(colorBarBottom){colorBarBottom.style.background=c;colorBarBottom.style.boxShadow=`0 0 5px ${c}88`;}picker.style.display='none';pickerOpen=false;});
+    picker.appendChild(sw);
+  });
+  const resetSw=document.createElement('div');resetSw.className='color-swatch';resetSw.style.cssText='background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:9px;color:#666;';resetSw.textContent='✕';
+  resetSw.addEventListener('click',e=>{e.stopPropagation();chColor='#2a2a2a';colorBarTop.style.background='#2a2a2a';if(colorBarBottom){colorBarBottom.style.background='#2a2a2a';colorBarBottom.style.boxShadow='none';}picker.style.display='none';pickerOpen=false;});
+  picker.appendChild(resetSw);
+  colorBarTop.appendChild(picker);
+  colorBarTop.addEventListener('click',e=>{e.stopPropagation();pickerOpen=!pickerOpen;picker.style.display=pickerOpen?'flex':'none';});
+  document.addEventListener('click',()=>{picker.style.display='none';pickerOpen=false;},{passive:true});
+
   const num=document.createElement('div');num.className='ch-number';num.textContent=String(i+1).padStart(2,'0');el.appendChild(num);
 
   // ── CHANNEL POWER BUTTON ──
@@ -2268,9 +2316,11 @@ function createChannel(i){
   const chBottom=document.createElement('div');chBottom.className='ch-bottom';
   const msPflRow=document.createElement('div');msPflRow.className='ms-pfl-row';
   const muteBtn=document.createElement('button');muteBtn.className='mute-btn';muteBtn.textContent='M';
-  const soloBtn=document.createElement('button');soloBtn.className='solo-btn';soloBtn.textContent='S';
-  const pflBtn =document.createElement('button');pflBtn.className='pfl-btn'; pflBtn.textContent='PFL';
-  msPflRow.appendChild(muteBtn);msPflRow.appendChild(soloBtn);msPflRow.appendChild(pflBtn);chBottom.appendChild(msPflRow);
+  // S/PFL unified button — solo on master + PFL on headphone output
+  const soloBtn=document.createElement('button');soloBtn.className='solo-btn';soloBtn.textContent='S/PFL';
+  soloBtn.style.cssText='width:36px;font-size:7px;letter-spacing:.5px;';
+  soloBtn.title='Solo/PFL — aísla en master y escucha pre-fader por salida PFL';
+  msPflRow.appendChild(muteBtn);msPflRow.appendChild(soloBtn);chBottom.appendChild(msPflRow);
 
   const panK=createKnob({label:'PAN',min:-1,max:1,value:0,size:30,color:'#aaa',unit:'',decimals:2,onChange:v=>panNode.pan.value=v});
 
@@ -2296,7 +2346,34 @@ function createChannel(i){
   ['A','B','C'].forEach(g=>{const b=document.createElement('button');b.className=`dca-btn dca-${g}`;b.textContent=g;b.addEventListener('click',()=>b.classList.toggle('active'));dcaVert.appendChild(b);});
   faderDcaRow.appendChild(dcaVert);
   chBottom.appendChild(faderDcaRow);
+
+  // Color bar bottom
+  const colorBarBottom=document.createElement('div');
+  colorBarBottom.className='ch-color-bar';
+  colorBarBottom.style.cssText=`background:${chColor};cursor:default;margin-top:2px;`;
+  chBottom.appendChild(colorBarBottom);
+
   el.appendChild(chBottom);
+
+  // DCA buttons — highlight all channels in same group
+  el.querySelectorAll('.dca-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const grp=btn.textContent;
+      const isNowActive=btn.classList.contains('active');
+      // Highlight all channels in this group
+      channels.forEach((otherCh,idx)=>{
+        const strip=document.getElementById('channelStrips').children[idx];
+        if(!strip)return;
+        strip.querySelectorAll('.dca-btn').forEach(b=>{
+          if(b.textContent===grp&&b.classList.contains('active')){
+            strip.classList.add(`dca-highlight-${grp}`);
+          } else if(b.textContent===grp){
+            strip.classList.remove(`dca-highlight-${grp}`);
+          }
+        });
+      });
+    });
+  });
 
   // HPF / Phantom
   let hpfActive=false;
@@ -2485,12 +2562,21 @@ function createChannel(i){
   }
 
   // PFL
-  let pflActive=false;
-  pflBtn.addEventListener('click',()=>{pflActive=!pflActive;pflBtn.classList.toggle('active',pflActive);el.classList.toggle('pfl-on',pflActive);pflGain.gain.value=pflActive?1:0;if(pflActive)activePFLs.add(i);else activePFLs.delete(i);updatePFLStatus();});
-
-  // Mute/Solo
+  // Unified S/PFL: solo on master + PFL to headphone output
+  let pflActive = false;
+  soloBtn.addEventListener('click',()=>{
+    ch.isSolo = !ch.isSolo;
+    pflActive  = ch.isSolo;
+    soloBtn.classList.toggle('active', ch.isSolo);
+    el.classList.toggle('soloed', ch.isSolo);
+    el.classList.toggle('pfl-on', ch.isSolo);
+    // PFL routing
+    pflGain.gain.value = ch.isSolo ? 1 : 0;
+    if(ch.isSolo) activePFLs.add(i); else activePFLs.delete(i);
+    updatePFLStatus();
+    updateMix();
+  });
   muteBtn.addEventListener('click',()=>{ch.isMuted=!ch.isMuted;muteBtn.classList.toggle('active',ch.isMuted);el.classList.toggle('muted',ch.isMuted);updateMix();});
-  soloBtn.addEventListener('click',()=>{ch.isSolo=!ch.isSolo;soloBtn.classList.toggle('active',ch.isSolo);el.classList.toggle('soloed',ch.isSolo);updateMix();});
 
   document.getElementById('channelStrips').appendChild(el);
 
@@ -2680,6 +2766,27 @@ dcaMasterSec.appendChild(Object.assign(document.createElement('div'),{style:"fon
 [{g:'A',color:'#60a0ff'},{g:'B',color:'#a060ff'},{g:'C',color:'#20e880'}].forEach(({g,color})=>{
   const dm=document.createElement('div');dm.className='dca-master';
   dm.appendChild(Object.assign(document.createElement('div'),{style:`font-size:9px;letter-spacing:2px;color:${color};font-family:'Orbitron',sans-serif;`,textContent:'GRP '+g}));
+
+  // Highlight button
+  const hlBtn=document.createElement('button');
+  hlBtn.style.cssText=`font-family:'Share Tech Mono',monospace;font-size:7px;padding:2px 6px;border:1px solid #333;border-radius:2px;background:#1a1a1a;color:${color};cursor:pointer;letter-spacing:.5px;opacity:.6;transition:all .2s;width:100%;margin-bottom:2px;`;
+  hlBtn.textContent='SHOW';
+  hlBtn.title=`Mostrar canales del grupo ${g}`;
+  let hlActive=false;
+  hlBtn.addEventListener('click',()=>{
+    hlActive=!hlActive;
+    hlBtn.style.opacity=hlActive?'1':'0.6';
+    hlBtn.style.background=hlActive?color+'33':'#1a1a1a';
+    // Highlight/unhighlight all channels in this group
+    const strips=document.getElementById('channelStrips').children;
+    Array.from(strips).forEach(strip=>{
+      const inGroup=Array.from(strip.querySelectorAll('.dca-btn'))
+        .some(b=>b.textContent===g&&b.classList.contains('active'));
+      strip.classList.toggle(`dca-highlight-${g}`, hlActive && inGroup);
+    });
+  });
+  dm.appendChild(hlBtn);
+
   const fdr=createFader({min:-60,max:10,value:0,height:80,onChange:v=>{const gv=dbToGain(v);channels.forEach((ch,idx)=>{const strip=document.getElementById('channelStrips').children[idx];if(!strip)return;strip.querySelectorAll('.dca-btn').forEach(b=>{if(b.textContent===g&&b.classList.contains('active'))ch.faderNode.gain.value=gv*ch.volume;});});}});
   dm.appendChild(fdr.el);dcaMasterSec.appendChild(dm);
 });
@@ -3428,7 +3535,7 @@ const TOUR_STEPS = [
     arrow: 'left',
     title: '④ Ecualizador de 3 bandas',
     body: `Cada canal tiene un <strong>EQ de 3 bandas</strong>:<br><br>
-      <strong>HI</strong> — realce/corte de agudos (10kHz)<br>
+      <strong>HI</strong> — realce/corte de agudos (8kHz)<br>
       <strong>MID</strong> — medios con frecuencia <strong>sweepable</strong> (200Hz–5kHz)<br>
       <strong>LO</strong> — graves (80Hz)<br><br>
       Rango: <strong>±24 dB</strong>. Doble clic en un knob para resetearlo a 0.`,
