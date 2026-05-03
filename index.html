@@ -32,8 +32,7 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
 .btn.play:hover{background:var(--green);color:#000;}
 .btn.stop:hover{background:var(--red);color:#fff;}
 /* Active transport states */
-.btn.play.active{background:var(--green);color:#000;box-shadow:0 0 12px #20e88088,0 0 4px #20e880;}
-.btn.stop.active{background:var(--red);color:#fff;box-shadow:0 0 12px #e8202088,0 0 4px #e82020;}
+.btn.loop-on{border-color:var(--accent2);color:var(--accent2);background:#001a1a;box-shadow:0 0 8px #20c8e844;}
 .listen-btn{font-family:'Share Tech Mono',monospace;font-size:10px;padding:4px 9px;border:1px solid #444;border-radius:2px;background:#222;color:var(--dim);cursor:pointer;letter-spacing:1px;transition:all .15s;}
 .listen-btn.active{background:var(--accent2);color:#000;border-color:var(--accent2);}
 
@@ -858,6 +857,7 @@ body.splash-active #appRoot{
   <div style="display:flex;gap:5px;">
     <button class="btn play" id="playAll">▶ PLAY</button>
     <button class="btn stop" id="stopAll">■ STOP</button>
+    <button class="btn" id="loopBtn" title="Loop — repetir pistas sin fin">⟳ LOOP</button>
   </div>
   <div style="display:flex;gap:3px;">
     <button class="listen-btn active" data-bus="foh">FOH</button>
@@ -1154,9 +1154,20 @@ async function connectInputDevice(deviceId){
     inputManager.numChannels = nCh;
     inputManager.deviceId    = deviceId;
 
-    // Grafo de audio
-    const source   = ctx.createMediaStreamSource(stream);
+    // Grafo de audio multicanal
+    // CRÍTICO: hay que configurar el sourceNode para que no mezcle a estéreo
+    const source = ctx.createMediaStreamSource(stream);
+    // Forzar que el nodo fuente mantenga todos los canales originales
+    source.channelCount          = nCh;
+    source.channelCountMode      = 'explicit';
+    source.channelInterpretation = 'discrete';
+
     const splitter = ctx.createChannelSplitter(nCh);
+    // El splitter también debe estar en modo discreto
+    splitter.channelCount          = nCh;
+    splitter.channelCountMode      = 'explicit';
+    splitter.channelInterpretation = 'discrete';
+
     source.connect(splitter);
     inputManager.sourceNode = source;
     inputManager.splitter   = splitter;
@@ -1230,19 +1241,21 @@ function updateInputGrid(){
 
 function _connectSplitterToChannel(srcIdx, ch){
   if(!inputManager.splitter) return;
-  // Disconnect any previous tap for this channel
   if(ch._inputTapGain){
     try{ ch._inputTapGain.disconnect(); }catch(e){}
   }
-  const tapGain = ctx.createGain(); tapGain.gain.value = 1;
+  const tapGain = ctx.createGain();
+  tapGain.gain.value            = 1;
+  tapGain.channelCount          = 1;
+  tapGain.channelCountMode      = 'explicit';
+  tapGain.channelInterpretation = 'discrete';
   try{
     inputManager.splitter.connect(tapGain, srcIdx, 0);
   }catch(e){
-    console.warn('Splitter connect error:', e);
+    console.warn('Splitter connect error on ch', srcIdx, e);
+    return;
   }
   ch._inputTapGain = tapGain;
-  // ── CRITICAL: wire tapGain → channel's inputSrcGain ──
-  // ch.inputSrcGainNode is set when the channel is created
   if(ch._inputSrcGain){
     try{ tapGain.connect(ch._inputSrcGain); }catch(e){}
   }
@@ -2005,7 +2018,15 @@ function createChannel(i){
     buffer=await ctx.decodeAudioData(ab);
     fl.textContent=e.target.files[0].name.substring(0,15);fl.classList.add('loaded');
   });
-  function play(when){if(!buffer)return;const src=ctx.createBufferSource();src.buffer=buffer;src.connect(trimNode);src.start(when);activeSources.push(src);}
+  function play(when){
+    if(!buffer) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop   = window._loopEnabled || false;  // loop mode
+    src.connect(trimNode);
+    src.start(when);
+    activeSources.push(src);
+  }
 
   // ── SOURCE SWITCH LOGIC ──
   let useInput = false; // false=FILE, true=INPUT
@@ -2607,15 +2628,25 @@ drawAnalysers();
 
 const playBtn = document.getElementById('playAll');
 const stopBtn = document.getElementById('stopAll');
+const loopBtn = document.getElementById('loopBtn');
 
 // STOP starts lit (no audio running)
 stopBtn.classList.add('active');
+
+// LOOP state
+window._loopEnabled = false;
+loopBtn.addEventListener('click', () => {
+  window._loopEnabled = !window._loopEnabled;
+  loopBtn.classList.toggle('loop-on', window._loopEnabled);
+  // Apply loop to already-running sources immediately
+  activeSources.forEach(s => { try{ s.loop = window._loopEnabled; }catch(e){} });
+  showToast(window._loopEnabled ? '⟳ Loop activado' : '⟳ Loop desactivado');
+});
 
 playBtn.addEventListener('click', () => {
   if (ctx.state === 'suspended') ctx.resume();
   const when = ctx.currentTime + 0.05;
   channels.forEach(ch => ch.play(when));
-  // visual state
   playBtn.classList.add('active');
   stopBtn.classList.remove('active');
 });
@@ -2623,7 +2654,6 @@ playBtn.addEventListener('click', () => {
 stopBtn.addEventListener('click', () => {
   activeSources.forEach(s => { try { s.stop(); } catch {} });
   activeSources = [];
-  // visual state
   stopBtn.classList.add('active');
   playBtn.classList.remove('active');
 });
