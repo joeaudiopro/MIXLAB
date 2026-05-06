@@ -607,8 +607,10 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
   text-shadow:0 0 12px #e8a02066;
 }
 
-/* version badge */
-.splash-version{
+/* Splash screen must be visible even while body is hidden during load */
+#splash, #splash *{
+  visibility:visible !important;
+}
   font-family:'Share Tech Mono',monospace;
   font-size:9px;color:#444;
   letter-spacing:2px;margin-top:2px;
