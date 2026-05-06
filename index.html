@@ -670,10 +670,10 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
   font-size:11px;
   letter-spacing:4px;
   padding:10px 32px;
-  border:1px solid var(--accent);
+  border:1px solid #e8a020;
   border-radius:3px;
   background:transparent;
-  color:var(--accent);
+  color:#e8a020;
   cursor:pointer;
   margin-top:16px;
   transition:all .25s;
@@ -682,6 +682,11 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
   animation:splashFadeIn 2.6s cubic-bezier(0.16,1,0.3,1) both;
 }
 .splash-enter:hover{
+  background:#1e1600;
+  color:#f5d06a;
+  border-color:#f5d06a;
+  box-shadow:0 0 20px #e8a02044;
+}
   background:#1e1600;
   border-color:var(--accent);
   box-shadow:0 0 20px #e8a02033;
@@ -1987,6 +1992,7 @@ function createVUMeterWithScale(){
 
 // Simple VU (for master section — no scale, no clip)
 function createVUMeter(){
+  // STEREO — 2 bars (L/R) for master and bus meters
   const wrap=document.createElement('div');wrap.className='vu-meter';
   const bars=[];
   for(let i=0;i<2;i++){
@@ -2003,6 +2009,26 @@ function createVUMeter(){
     b.bar.style.background=db>-3?'linear-gradient(to top,#e82020,#ff4040)':db>-9?'linear-gradient(to top,#e8c020,#ffe040)':db>-20?'linear-gradient(to top,#20e860,#40ff80)':'linear-gradient(to top,#20a840,#20e860)';
     if(db>ph[ch].db){ph[ch].db=db;clearTimeout(ph[ch].t);ph[ch].t=setTimeout(()=>{ph[ch].db=-100;},2000);}
     b.pk.style.bottom=Math.max(0,(ph[ch].db+60)/70*100)+'%';
+  }
+  return{el:wrap,setLevel};
+}
+
+function createVUMeterMono(){
+  // MONO — 1 bar only for channel strips
+  const wrap=document.createElement('div');wrap.className='vu-meter';
+  wrap.style.width='12px'; // narrower for mono
+  const bw=document.createElement('div');bw.className='vu-bar-wrap';
+  const bar=document.createElement('div');bar.className='vu-bar';
+  const pk=document.createElement('div');pk.className='vu-peak';pk.style.bottom='0px';
+  bw.appendChild(bar);bw.appendChild(pk);wrap.appendChild(bw);
+  let peakDb=-100, peakTimer=null;
+  function setLevel(ch,db){
+    if(ch!==0) return; // mono — ignore ch 1
+    const pct=Math.max(0,(db+60)/70*100);
+    bar.style.height=pct+'%';
+    bar.style.background=db>-3?'linear-gradient(to top,#e82020,#ff4040)':db>-9?'linear-gradient(to top,#e8c020,#ffe040)':db>-20?'linear-gradient(to top,#20e860,#40ff80)':'linear-gradient(to top,#20a840,#20e860)';
+    if(db>peakDb){peakDb=db;clearTimeout(peakTimer);peakTimer=setTimeout(()=>{peakDb=-100;},2000);}
+    pk.style.bottom=Math.max(0,(peakDb+60)/70*100)+'%';
   }
   return{el:wrap,setLevel};
 }
@@ -2285,7 +2311,7 @@ function createChannel(i){
   el.appendChild(fw);
 
   // VU with scale + clip
-  const vu=createVUMeterWithScale();el.appendChild(vu.el);
+  const vu=createVUMeterMono();el.appendChild(vu.el);
 
   // AUDIO NODES
   const trimNode  =ctx.createGain();         trimNode.gain.value=1;
@@ -2933,7 +2959,16 @@ function makeMasterCh(label,bus,color,isMain){
   const mc=document.createElement('div');mc.className='master-ch'+(isMain?' main':'');
   const lbl=document.createElement('div');lbl.className='master-label';lbl.style.cssText=`color:${color};`;lbl.textContent=label;
   const vu=createVUMeter();
-  const an=ctx.createAnalyser();an.fftSize=1024;const buf=new Uint8Array(an.fftSize);bus.connect(an);
+
+  // For stereo L/R metering, use a ChannelSplitter
+  // This lets us measure L and R independently so panning shows on the VU
+  const splitter = ctx.createChannelSplitter(2);
+  const anL=ctx.createAnalyser();anL.fftSize=1024;const bufL=new Uint8Array(anL.fftSize);
+  const anR=ctx.createAnalyser();anR.fftSize=1024;const bufR=new Uint8Array(anR.fftSize);
+  bus.connect(splitter);
+  splitter.connect(anL,0); // L channel
+  splitter.connect(anR,1); // R channel
+
   const fdr=createFader({min:-60,max:10,value:0,height:120,onChange:v=>{if(mPwrOn)bus.gain.value=dbToGain(v);}});
 
   // Master power button
@@ -2948,7 +2983,9 @@ function makeMasterCh(label,bus,color,isMain){
   });
 
   mc.appendChild(lbl);mc.appendChild(mPwrBtn);mc.appendChild(vu.el);mc.appendChild(fdr.el);
-  masterRow.appendChild(mc);masterAnalysers.push({vu,an,buf});
+  masterRow.appendChild(mc);
+  // Store both L and R analysers for stereo metering
+  masterAnalysers.push({vu, anL, anR, bufL, bufR, stereo:true});
 }
 makeMasterCh('MASTER',masterBus,'#e8a020',true);
 makeMasterCh('AUX 1', aux1Bus, '#20c8e8',false);
@@ -3754,14 +3791,12 @@ const VU_FLOOR = -40; // dBFS — por debajo de esto el VU no muestra actividad
 
 function meterLoop(){
   channels.forEach(ch=>{
-    // ── Channel VU (post-fader) ──
+    // ── Channel VU (mono — post-fader) ──
     ch.analyser.getByteTimeDomainData(ch.analyserBuf);
     let sum=0;for(let i=0;i<ch.analyserBuf.length;i++){const s=(ch.analyserBuf[i]-128)/128;sum+=s*s;}
     const db=gainToDB(Math.sqrt(sum/ch.analyserBuf.length));
-    // Aplica piso: si está por debajo de -40dB, manda -100 (silencio visual)
-    const vuDb  = db < VU_FLOOR ? -100 : db;
-    ch.vu.setLevel(0, vuDb);
-    ch.vu.setLevel(1, vuDb + (Math.random()*1.2-.6));
+    const vuDb = db < VU_FLOOR ? -100 : db;
+    ch.vu.setLevel(0, vuDb); // mono — single bar only
 
     // ── Signal LED (pre-fader, siempre activo) ──
     ch.sigAnalyser.getByteTimeDomainData(ch.sigBuf);
@@ -3788,8 +3823,25 @@ function meterLoop(){
   });
 
   masterAnalysers.forEach(m=>{
-    m.an.getByteTimeDomainData(m.buf);let s2=0;for(let i=0;i<m.buf.length;i++){const s=(m.buf[i]-128)/128;s2+=s*s;}
-    const db=gainToDB(Math.sqrt(s2/m.buf.length));m.vu.setLevel(0,db);m.vu.setLevel(1,db+(Math.random()*.8-.4));
+    if(m.stereo){
+      // True stereo L/R metering
+      m.anL.getByteTimeDomainData(m.bufL);
+      m.anR.getByteTimeDomainData(m.bufR);
+      let sL=0, sR=0;
+      for(let i=0;i<m.bufL.length;i++){
+        const l=(m.bufL[i]-128)/128; sL+=l*l;
+        const r=(m.bufR[i]-128)/128; sR+=r*r;
+      }
+      const dbL=gainToDB(Math.sqrt(sL/m.bufL.length));
+      const dbR=gainToDB(Math.sqrt(sR/m.bufR.length));
+      m.vu.setLevel(0,dbL); // L bar
+      m.vu.setLevel(1,dbR); // R bar
+    } else {
+      m.an.getByteTimeDomainData(m.buf);
+      let s2=0;for(let i=0;i<m.buf.length;i++){const s=(m.buf[i]-128)/128;s2+=s*s;}
+      const db=gainToDB(Math.sqrt(s2/m.buf.length));
+      m.vu.setLevel(0,db);m.vu.setLevel(1,db);
+    }
   });
 
   pflAnalyser.getByteTimeDomainData(pflBuf2);
