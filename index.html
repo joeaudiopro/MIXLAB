@@ -820,7 +820,7 @@ body.splash-active #appRoot{
 <div id="tourOverlay">
   <div id="tourSpotlight"></div>
   <div id="tourCard">
-    <div class="tour-step-badge" id="tourBadge">PASO 1 DE 7</div>
+    <div class="tour-step-badge" id="tourBadge">PASO 1 DE 8</div>
     <div class="tour-title"    id="tourTitle">Título</div>
     <div class="tour-body"     id="tourBody">Contenido</div>
     <div class="tour-footer">
@@ -2077,7 +2077,6 @@ const sharedColorPicker = (() => {
   document.body.appendChild(el);
 
   let onPick = null;
-  let justOpened = false; // prevents immediate close on same click
 
   COLORS.forEach(c => {
     const sw = document.createElement('div');
@@ -2103,26 +2102,30 @@ const sharedColorPicker = (() => {
   });
   el.appendChild(reset);
 
-  // Close when clicking outside — but not on the same click that opened it
-  document.addEventListener('click', () => {
-    if(justOpened){ justOpened=false; return; }
-    el.style.display = 'none';
-  }, {passive:true});
+  // Close on outside click — use capture phase to detect clicks outside the picker
+  document.addEventListener('click', e => {
+    if(el.style.display === 'none') return;
+    if(!el.contains(e.target)){
+      el.style.display = 'none';
+    }
+  }, true); // capture=true — fires before other handlers
 
   return {
     show(anchor, callback){
       onPick = callback;
-      justOpened = true; // ignore next document click
+      // Position first, then show
       el.style.display = 'flex';
-      const rect = anchor.getBoundingClientRect();
-      const pw = el.offsetWidth  || 130;
-      const ph = el.offsetHeight || 64;
-      let left = rect.left;
-      let top  = rect.bottom + 4;
-      if(top + ph > window.innerHeight - 10) top = rect.top - ph - 4;
-      if(left + pw > window.innerWidth  - 10) left = window.innerWidth - pw - 10;
-      el.style.left = left + 'px';
-      el.style.top  = top  + 'px';
+      requestAnimationFrame(() => {
+        const rect = anchor.getBoundingClientRect();
+        const pw = el.offsetWidth  || 130;
+        const ph = el.offsetHeight || 64;
+        let left = rect.left;
+        let top  = rect.bottom + 4;
+        if(top + ph > window.innerHeight - 10) top = rect.top - ph - 4;
+        if(left + pw > window.innerWidth  - 10) left = window.innerWidth - pw - 10;
+        el.style.left = left + 'px';
+        el.style.top  = top  + 'px';
+      });
     }
   };
 })();
@@ -2533,8 +2536,9 @@ function createChannel(i){
 
   // Clear button — resets file and allows stem library to take over
   const clearBtn = document.createElement('button');
+  clearBtn.className = 'clear-btn';
   clearBtn.textContent = '✕';
-  clearBtn.title = 'Limpiar audio cargado';
+  clearBtn.title = 'Limpiar — resetear canal';
   clearBtn.style.cssText = `
     font-size:8px;padding:1px 5px;margin-left:2px;
     border:1px solid #444;border-radius:2px;
@@ -2550,6 +2554,10 @@ function createChannel(i){
     fl.classList.remove('loaded');
     fi.value = '';
     clearBtn.style.display = 'none';
+    // Also reset channel label back to default
+    lEl.textContent = 'CH ' + (i+1);
+    // Reset color bars to neutral
+    el.querySelectorAll('.ch-color-bar').forEach(b=>{b.style.background='#2a2a2a';b.style.boxShadow='none';});
   });
   fw.appendChild(clearBtn);
 
@@ -3123,6 +3131,9 @@ async function loadStemSet(setId, btn, statusEl){
           // Show stem name in the file load button
           const fileLabel = ch.el ? ch.el.querySelector('.file-label') : null;
           if(fileLabel){ fileLabel.textContent = '▸ ' + stem.label; fileLabel.classList.add('loaded'); }
+          // Show clear button
+          const cb = ch.el ? ch.el.querySelector('.clear-btn') : null;
+          if(cb) cb.style.display = 'inline';
 
           // Update channel label
           const chLabelEl = ch.el ? ch.el.querySelector('.ch-label') : null;
@@ -3864,9 +3875,21 @@ const TOUR_STEPS = [
     })
   },
   {
+    target: () => document.querySelector('.pfl-out-wrap'),
+    arrow: 'top',
+    title: '④ Salida PFL — Monitor de auriculares',
+    body: `El selector <strong>🎧 PFL OUT</strong> te permite elegir por qué dispositivo de audio escuchas el <strong>Pre-Fader Listen</strong>.<br><br>
+      Al presionar el botón <strong>S/PFL</strong> de cualquier canal, escucharás ese canal en <strong>solitario</strong> a través del dispositivo seleccionado — tus auriculares — <strong>sin interrumpir la mezcla principal</strong>.<br><br>
+      Igual que en una consola analógica real: el operador monitorea pre-fader con los auriculares mientras el público sigue escuchando la mezcla completa.`,
+    cardPos: (r, cw, ch) => ({
+      top:  r.bottom + 20,
+      left: Math.max(16, r.left - cw/2 + r.width/2)
+    })
+  },
+  {
     target: () => document.querySelector('.eq-section'),
     arrow: 'left',
-    title: '④ Ecualizador de 3 bandas',
+    title: '⑤ Ecualizador de 3 bandas',
     body: `Cada canal tiene un <strong>EQ de 3 bandas</strong>:<br><br>
       <strong>HI</strong> — realce/corte de agudos (8kHz)<br>
       <strong>MID</strong> — medios con frecuencia <strong>sweepable</strong> (200Hz–5kHz)<br>
@@ -3880,7 +3903,7 @@ const TOUR_STEPS = [
   {
     target: () => document.querySelector('.sends-section'),
     arrow: 'left',
-    title: '⑤ Envíos (Sends)',
+    title: '⑥ Envíos (Sends)',
     body: `Los <strong>sends</strong> envían señal del canal a los buses auxiliares y de efectos:<br><br>
       <strong>AUX1 / AUX2</strong> → monitores o mezclas alternativas<br>
       <strong>FX1</strong> → reverberación<br>
@@ -3897,7 +3920,7 @@ const TOUR_STEPS = [
       return document.querySelector('.fader-track');
     },
     arrow: 'left',
-    title: '⑥ Fader de volumen',
+    title: '⑦ Fader de volumen',
     body: `El <strong>fader</strong> controla el volumen del canal en la mezcla principal.<br><br>
       Usa una <strong>curva logarítmica</strong> real — más recorrido cerca del <strong>0 dB</strong> (unity gain) para mayor precisión.<br><br>
       <strong>Doble clic</strong> en el cap → regresa a 0 dB.<br>
@@ -3910,7 +3933,7 @@ const TOUR_STEPS = [
   {
     target: () => document.querySelector('.dyn-section'),
     arrow: 'left',
-    title: '⑦ Dinámica — Gate & Compresor',
+    title: '⑧ Dinámica — Gate & Compresor',
     body: `Disponibles en <strong>modo NINJA 🥷</strong>. Cada canal tiene:<br><br>
       <strong>GATE</strong> — silencia el canal cuando la señal baja del umbral. Ideal para eliminar ruido de fondo.<br><br>
       <strong>COMP</strong> — compresor que controla los picos de volumen. La barra <strong>GR</strong> muestra la reducción de ganancia en tiempo real.`,
