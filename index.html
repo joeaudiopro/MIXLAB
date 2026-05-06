@@ -2268,7 +2268,7 @@ function createChannel(i){
   const dyn=createDynamics(dynIn,dynOut);
 
   // GAIN knob
-  const gainK=createKnob({label:'GAIN',min:-24,max:24,value:0,size:34,color:'#e8a020',unit:'dB',decimals:1,onChange:v=>trimNode.gain.value=dbToGain(v)});
+  const gainK=createKnob({label:'GAIN',min:-30,max:30,value:0,size:34,color:'#e8a020',unit:'dB',decimals:1,onChange:v=>trimNode.gain.value=dbToGain(v)});
   el.appendChild(gainK.el);
 
   // DYNAMICS UI  (digital-only)
@@ -3292,7 +3292,7 @@ function drawEQ() {
       // So: displayDB = dBFS + 18  (shift so -18dBFS = 0 on display)
       function valToDisplayDb(val){
         const dBFS = -60 + val * 60;  // -60 to 0 dBFS
-        return dBFS + 18;             // shift: -18dBFS = 0dB on display
+        return dBFS + 42;             // shift: -42dBFS = 0dB on display, clip at 0dBFS = +18dB
       }
 
       // Draw filled spectrum
