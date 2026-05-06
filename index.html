@@ -213,20 +213,20 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
 
 /* CHANNEL COLOR BAR */
 .ch-color-bar{
-  width:100%;height:5px;border-radius:3px;
+  width:100%;
+  height:10px;
+  border-radius:3px;
   cursor:pointer;
   margin-bottom:2px;
-  transition:filter .2s;
+  transition:filter .15s, height .15s;
   position:relative;
+  pointer-events:all;
 }
-.ch-color-bar:hover{ filter:brightness(1.3); }
-.ch-color-bar::after{
-  content:'';position:absolute;inset:0;
-  border-radius:3px;
-  background:rgba(255,255,255,0);
-  transition:background .2s;
+.ch-color-bar:hover{
+  filter:brightness(1.5);
+  height:12px;
+  outline:1px solid rgba(255,255,255,0.3);
 }
-.ch-color-bar:hover::after{ background:rgba(255,255,255,0.15); }
 
 /* DCA MASTER */
 .dca-master-section{background:#161616;border:1px solid #2a2a2a;border-radius:6px;padding:8px;display:flex;gap:6px;}
@@ -2102,13 +2102,13 @@ const sharedColorPicker = (() => {
   });
   el.appendChild(reset);
 
-  // Close on outside click — use capture phase to detect clicks outside the picker
+  // Close on outside click — ignore clicks on color bars (they handle their own toggle)
   document.addEventListener('click', e => {
     if(el.style.display === 'none') return;
-    if(!el.contains(e.target)){
-      el.style.display = 'none';
-    }
-  }, true); // capture=true — fires before other handlers
+    if(el.contains(e.target)) return;          // click inside picker — swatches handle this
+    if(e.target.classList.contains('ch-color-bar')) return; // color bar opens it
+    el.style.display = 'none';
+  }, true);
 
   return {
     show(anchor, callback){
