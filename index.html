@@ -2227,10 +2227,10 @@ function createChannel(i){
   const inputSrcGain=ctx.createGain(); inputSrcGain.gain.value=0;
   // Both file-buffer source and live input feed into trimNode
   inputSrcGain.connect(trimNode);
-  const hpfNode   =ctx.createBiquadFilter(); hpfNode.type='highpass'; hpfNode.frequency.value=20; hpfNode.Q.value=0.7;
-  const lowEQ     =ctx.createBiquadFilter(); lowEQ.type='lowshelf';   lowEQ.frequency.value=80;
-  const midEQ     =ctx.createBiquadFilter(); midEQ.type='peaking';    midEQ.frequency.value=1000; midEQ.Q.value=1.4;
-  const highEQ    =ctx.createBiquadFilter(); highEQ.type='highshelf'; highEQ.frequency.value=8000;
+  const hpfNode   =ctx.createBiquadFilter(); hpfNode.type='highpass';  hpfNode.frequency.value=20;   hpfNode.Q.value=0.7;
+  const lowEQ     =ctx.createBiquadFilter(); lowEQ.type='lowshelf';    lowEQ.frequency.value=120;  // 120Hz más musical que 80Hz
+  const midEQ     =ctx.createBiquadFilter(); midEQ.type='peaking';     midEQ.frequency.value=1000; midEQ.Q.value=0.7; // Q más ancho = más musical
+  const highEQ    =ctx.createBiquadFilter(); highEQ.type='highshelf';  highEQ.frequency.value=8000;
   const dynIn     =ctx.createGain();
   const dynOut    =ctx.createGain();
   const faderNode =ctx.createGain();         faderNode.gain.value=0;
@@ -2355,7 +2355,7 @@ function createChannel(i){
   swRow.appendChild(swK.el);midBand.appendChild(swRow);eqSec.appendChild(midBand);
 
   const loBand=document.createElement('div');loBand.className='eq-band';
-  const loK=createKnob({label:'LO',min:-24,max:24,value:0,size:32,color:'#e87020',unit:'dB',decimals:0,freqLabel:fmtFreq(80),onChange:v=>{lowEQ.gain.value=v;focusThisChannel();}});
+  const loK=createKnob({label:'LO',min:-24,max:24,value:0,size:32,color:'#e87020',unit:'dB',decimals:0,freqLabel:fmtFreq(120),onChange:v=>{lowEQ.gain.value=v;focusThisChannel();}});
   loBand.appendChild(loK.el);eqSec.appendChild(loBand);
   el.appendChild(eqSec);
 
