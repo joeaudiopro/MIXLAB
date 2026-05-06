@@ -2071,26 +2071,56 @@ function createChannel(i){
   // ── CHANNEL COLOR BAR (top) ──
   const CH_COLORS=['#e82020','#e86020','#e8a020','#e8e020','#20e860','#20e8c0','#20a0e8','#6060e8','#a020e8','#e820a0','#e8e8e8','#888888'];
   let chColor='#2a2a2a';
+
   const colorBarTop=document.createElement('div');
   colorBarTop.className='ch-color-bar';
   colorBarTop.style.cssText=`background:${chColor};position:relative;`;
   colorBarTop.title='Clic para elegir color del canal';
   el.appendChild(colorBarTop);
 
-  // Color picker
-  let pickerOpen=false;
-  const picker=document.createElement('div');picker.className='color-picker-popup';picker.style.display='none';
+  // Floating picker — attached to body to avoid channel overflow clipping
+  const picker=document.createElement('div');
+  picker.className='color-picker-popup';
+  picker.style.cssText='display:none;position:fixed;z-index:9999;';
+  document.body.appendChild(picker);
+
   CH_COLORS.forEach(c=>{
     const sw=document.createElement('div');sw.className='color-swatch';sw.style.background=c;
-    sw.addEventListener('click',e=>{e.stopPropagation();chColor=c;colorBarTop.style.background=c;if(colorBarBottom){colorBarBottom.style.background=c;colorBarBottom.style.boxShadow=`0 0 5px ${c}88`;}picker.style.display='none';pickerOpen=false;});
+    sw.addEventListener('click',e=>{
+      e.stopPropagation();
+      chColor=c;
+      colorBarTop.style.background=c;
+      if(colorBarBottom){ colorBarBottom.style.background=c; colorBarBottom.style.boxShadow=`0 0 5px ${c}88`; }
+      picker.style.display='none';
+    });
     picker.appendChild(sw);
   });
-  const resetSw=document.createElement('div');resetSw.className='color-swatch';resetSw.style.cssText='background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:9px;color:#666;';resetSw.textContent='✕';
-  resetSw.addEventListener('click',e=>{e.stopPropagation();chColor='#2a2a2a';colorBarTop.style.background='#2a2a2a';if(colorBarBottom){colorBarBottom.style.background='#2a2a2a';colorBarBottom.style.boxShadow='none';}picker.style.display='none';pickerOpen=false;});
+  const resetSw=document.createElement('div');
+  resetSw.className='color-swatch';
+  resetSw.style.cssText='background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:9px;color:#666;';
+  resetSw.textContent='✕';
+  resetSw.addEventListener('click',e=>{
+    e.stopPropagation();
+    chColor='#2a2a2a';
+    colorBarTop.style.background='#2a2a2a';
+    if(colorBarBottom){ colorBarBottom.style.background='#2a2a2a'; colorBarBottom.style.boxShadow='none'; }
+    picker.style.display='none';
+  });
   picker.appendChild(resetSw);
-  colorBarTop.appendChild(picker);
-  colorBarTop.addEventListener('click',e=>{e.stopPropagation();pickerOpen=!pickerOpen;picker.style.display=pickerOpen?'flex':'none';});
-  document.addEventListener('click',()=>{picker.style.display='none';pickerOpen=false;},{passive:true});
+
+  colorBarTop.addEventListener('click', e=>{
+    e.stopPropagation();
+    // Position picker above the color bar
+    const rect = colorBarTop.getBoundingClientRect();
+    picker.style.left = Math.min(rect.left, window.innerWidth - 120) + 'px';
+    picker.style.top  = (rect.top - picker.offsetHeight - 6) + 'px';
+    picker.style.display = picker.style.display==='flex' ? 'none' : 'flex';
+    // Recalculate position after display:flex is applied
+    requestAnimationFrame(()=>{
+      picker.style.top = (rect.top - picker.offsetHeight - 6) + 'px';
+    });
+  });
+  document.addEventListener('click', ()=>{ picker.style.display='none'; }, {passive:true});
 
   const num=document.createElement('div');num.className='ch-number';num.textContent=String(i+1).padStart(2,'0');el.appendChild(num);
 
@@ -2459,6 +2489,7 @@ function createChannel(i){
     if(ctx.state==='suspended')ctx.resume();
     const ab=await e.target.files[0].arrayBuffer();
     buffer=await ctx.decodeAudioData(ab);
+    ch.buffer = buffer; // sync with channel object
     fl.textContent=e.target.files[0].name.substring(0,15);fl.classList.add('loaded');
   });
   function play(when){
@@ -2701,6 +2732,7 @@ function createChannel(i){
   s_fx2.desiredGain  = 0;
 
   const ch={
+    el,                // channel DOM element
     play,faderNode,analyser,analyserBuf,vu,
     sigAnalyser,sigBuf,sigLed,
     dyn,gateGRBar:gateGR.bar,compGRBar:compGR.bar,
@@ -2713,6 +2745,7 @@ function createChannel(i){
     _assignedDeviceId:      null,
     _assignedStream:        null,
     _refreshDeviceDropdown: refreshDeviceDropdown,
+    buffer:                 null, // audio buffer — set by stem loader or file input
     assignInput,
     getLabel: ()=>lEl.textContent,
     get volume(){return dbToGain(fader.getValue());},
@@ -2906,6 +2939,152 @@ dynCanvas.style.cssText = 'width:100%;height:80px;border-radius:4px;background:#
 analyserDisplay.appendChild(dynCanvas);
 
 right.appendChild(analyserDisplay);
+
+// ══════════════════════════════════════════════════
+//  STEM LIBRARY PANEL
+// ══════════════════════════════════════════════════
+const stemPanel = document.createElement('div');
+stemPanel.style.cssText = `
+  background:#0e0e0e;border:1px solid #2a2a2a;border-radius:6px;
+  padding:8px;display:flex;flex-direction:column;gap:6px;min-width:340px;
+`;
+
+const stemHeader = document.createElement('div');
+stemHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+const stemTitle = document.createElement('div');
+stemTitle.style.cssText = "font-family:'Orbitron',sans-serif;font-size:9px;color:var(--accent);letter-spacing:2px;";
+stemTitle.textContent = '▸ STEM LIBRARY';
+const stemStatus = document.createElement('div');
+stemStatus.style.cssText = 'font-size:8px;color:var(--dim);font-family:"Share Tech Mono",monospace;letter-spacing:1px;';
+stemStatus.textContent = '— sin cargar —';
+stemHeader.appendChild(stemTitle);
+stemHeader.appendChild(stemStatus);
+stemPanel.appendChild(stemHeader);
+
+// Set selector buttons
+const stemSets = [
+  { id:'set2', name:'Pop Fusion 10ch', difficulty:'INTERMEDIO', color:'#e8a020' },
+];
+
+const setRow = document.createElement('div');
+setRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+
+stemSets.forEach(set => {
+  const btn = document.createElement('button');
+  btn.style.cssText = `
+    font-family:'Share Tech Mono',monospace;font-size:8px;
+    padding:4px 10px;border:1px solid ${set.color}44;
+    border-radius:3px;background:#1a1a0a;color:${set.color};
+    cursor:pointer;letter-spacing:.5px;transition:all .2s;
+    text-align:left;
+  `;
+  btn.innerHTML = `<span style="font-size:9px;font-weight:bold;">${set.name}</span><br>
+    <span style="opacity:.6;font-size:7px;">${set.difficulty}</span>`;
+  btn.addEventListener('mouseenter', ()=>btn.style.background=`${set.color}22`);
+  btn.addEventListener('mouseleave', ()=>btn.style.background='#1a1a0a');
+  btn.addEventListener('click', ()=> loadStemSet(set.id, btn, stemStatus));
+  setRow.appendChild(btn);
+});
+stemPanel.appendChild(setRow);
+
+// Progress bar
+const stemProgress = document.createElement('div');
+stemProgress.style.cssText = 'display:none;height:3px;background:#1a1a1a;border-radius:2px;overflow:hidden;';
+const stemProgressBar = document.createElement('div');
+stemProgressBar.style.cssText = 'height:100%;background:var(--accent);width:0%;transition:width .3s;border-radius:2px;';
+stemProgress.appendChild(stemProgressBar);
+stemPanel.appendChild(stemProgress);
+
+// Stem list preview
+const stemList = document.createElement('div');
+stemList.style.cssText = 'display:flex;flex-direction:column;gap:2px;max-height:120px;overflow-y:auto;';
+stemPanel.appendChild(stemList);
+
+right.appendChild(stemPanel);
+
+// ── LOAD STEM SET ──
+const BASE_URL = 'https://joeaudiopro.github.io/MIXLAB/stems/';
+
+async function loadStemSet(setId, btn, statusEl){
+  try {
+    statusEl.textContent = 'Cargando info...';
+    stemProgress.style.display = 'block';
+    stemProgressBar.style.width = '5%';
+    stemList.innerHTML = '';
+
+    // Fetch info.json
+    const infoUrl = `${BASE_URL}${setId}/info.json`;
+    const res = await fetch(infoUrl);
+    if(!res.ok) throw new Error('No se encontró el set');
+    const info = await res.json();
+
+    statusEl.textContent = `${info.name} — cargando stems...`;
+    const total = info.stems.length;
+
+    // Load each stem
+    for(let i = 0; i < total; i++){
+      const stem = info.stems[i];
+      const url  = `${BASE_URL}${setId}/${encodeURIComponent(stem.file)}`;
+
+      // Show stem in list
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:3px;background:#111;';
+      const dot = document.createElement('div');
+      dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${stem.color};flex-shrink:0;`;
+      const name = document.createElement('div');
+      name.style.cssText = 'font-size:8px;color:var(--dim);font-family:"Share Tech Mono",monospace;flex:1;';
+      name.textContent = stem.label;
+      const loadingEl = document.createElement('div');
+      loadingEl.style.cssText = 'font-size:7px;color:#444;';
+      loadingEl.textContent = '...';
+      row.appendChild(dot); row.appendChild(name); row.appendChild(loadingEl);
+      stemList.appendChild(row);
+
+      // Fetch and decode audio
+      try {
+        const audioRes  = await fetch(url);
+        const arrayBuf  = await audioRes.arrayBuffer();
+        const audioBuf  = await ctx.decodeAudioData(arrayBuf);
+
+        // Assign to channel
+        const ch = channels[i];
+        if(ch){
+          ch.buffer = audioBuf;
+          // Update local buffer reference via setter
+          const fileLabel = ch.el ? ch.el.querySelector('.file-label') : null;
+          if(fileLabel){ fileLabel.textContent = stem.label; fileLabel.classList.add('loaded'); }
+          // Update channel label
+          const chLabelEl = ch.el ? ch.el.querySelector('.ch-label') : null;
+          if(chLabelEl) chLabelEl.textContent = stem.label;
+          // Update color bars
+          const colorBars = ch.el ? ch.el.querySelectorAll('.ch-color-bar') : [];
+          colorBars.forEach(bar => { bar.style.background = stem.color; });
+
+          loadingEl.textContent = '✔';
+          loadingEl.style.color = '#20e880';
+          name.style.color = '#c8c8c8';
+        }
+      } catch(e) {
+        loadingEl.textContent = '✗';
+        loadingEl.style.color = '#e82020';
+        console.warn('Error cargando stem:', stem.file, e);
+      }
+
+      // Update progress
+      stemProgressBar.style.width = Math.round((i+1)/total*100) + '%';
+    }
+
+    statusEl.textContent = `✔ ${info.name} — ${total} stems cargados`;
+    statusEl.style.color = '#20e880';
+    setTimeout(()=>{ stemProgress.style.display='none'; stemProgressBar.style.width='0%'; }, 1000);
+
+  } catch(e) {
+    statusEl.textContent = '✗ Error: ' + e.message;
+    statusEl.style.color = '#e82020';
+    stemProgress.style.display = 'none';
+    console.error('loadStemSet error:', e);
+  }
+}
 
 // ── State for the selected channel's EQ nodes ──
 let focusedChannel = null; // { hiEQ, midEQ, lowEQ, compThr, compRatio, compKnee, gThr, label }
