@@ -2073,8 +2073,10 @@ const sharedColorPicker = (() => {
                   '#20a0e8','#6060e8','#a020e8','#e820a0','#e8e8e8','#888888'];
   const el = document.createElement('div');
   el.className = 'color-picker-popup';
-  el.style.cssText = 'display:none;position:fixed;z-index:9999;';
-  document.body.appendChild(el);
+  el.style.cssText = 'display:none;position:fixed;z-index:2147483646;';
+  // Attach to appRoot, not body — stays above most overlays
+  const appRoot = document.getElementById('appRoot') || document.body;
+  appRoot.appendChild(el);
 
   let onPick = null;
 
@@ -2113,16 +2115,21 @@ const sharedColorPicker = (() => {
   return {
     show(anchor, callback){
       onPick = callback;
-      // Position first, then show
       el.style.display = 'flex';
+      // Always position BELOW the anchor bar
       requestAnimationFrame(() => {
         const rect = anchor.getBoundingClientRect();
-        const pw = el.offsetWidth  || 130;
-        const ph = el.offsetHeight || 64;
+        const pw   = el.offsetWidth  || 140;
+        const ph   = el.offsetHeight || 70;
+        // Always below — never above, topbar is at top
+        let top  = rect.bottom + 6;
         let left = rect.left;
-        let top  = rect.bottom + 4;
-        if(top + ph > window.innerHeight - 10) top = rect.top - ph - 4;
-        if(left + pw > window.innerWidth  - 10) left = window.innerWidth - pw - 10;
+        // If goes off right edge
+        if(left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
+        // If goes off bottom (unlikely but safe)
+        if(top + ph > window.innerHeight - 8) top = rect.top - ph - 6;
+        // Never go above 60px (topbar height)
+        if(top < 60) top = rect.bottom + 6;
         el.style.left = left + 'px';
         el.style.top  = top  + 'px';
       });
