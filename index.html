@@ -1989,7 +1989,15 @@ function createVUMeterWithScale(){
     const pct=Math.max(0,(db-VU_MIN)/VU_RANGE*100);
     b.bar.style.height=pct+'%';
     b.bar.style.background=db>-3?'linear-gradient(to top,#e82020,#ff4040)':db>-9?'linear-gradient(to top,#e8c020,#ffe040)':db>-20?'linear-gradient(to top,#20e860,#40ff80)':'linear-gradient(to top,#20a840,#20e860)';
-    if(db>ph[ch].db){ph[ch].db=db;clearTimeout(ph[ch].t);ph[ch].t=setTimeout(()=>{ph[ch].db=-100;},2000);}
+    if(db>ph[ch].db){
+      ph[ch].db=db;
+      clearTimeout(ph[ch].t);
+      // Hold peak for 1.5s then decay it
+      ph[ch].t=setTimeout(()=>{
+        ph[ch].db=-100;
+        b.pk.style.bottom='0px';
+      }, 1500);
+    }
     b.pk.style.bottom=Math.max(0,(ph[ch].db-VU_MIN)/VU_RANGE*100)+'%';
     // CLIP LED: triggers at -3dBFS or higher
     if(db>=-1 && !clipHold){clipHold=true;clipLed.classList.add('clip');}
@@ -2014,7 +2022,14 @@ function createVUMeter(){
     const pct=Math.max(0,(db+60)/70*100);
     b.bar.style.height=pct+'%';
     b.bar.style.background=db>-3?'linear-gradient(to top,#e82020,#ff4040)':db>-9?'linear-gradient(to top,#e8c020,#ffe040)':db>-20?'linear-gradient(to top,#20e860,#40ff80)':'linear-gradient(to top,#20a840,#20e860)';
-    if(db>ph[ch].db){ph[ch].db=db;clearTimeout(ph[ch].t);ph[ch].t=setTimeout(()=>{ph[ch].db=-100;},2000);}
+    if(db>ph[ch].db){
+      ph[ch].db=db;
+      clearTimeout(ph[ch].t);
+      ph[ch].t=setTimeout(()=>{
+        ph[ch].db=-100;
+        b.pk.style.bottom='0px';
+      }, 1500);
+    }
     b.pk.style.bottom=Math.max(0,(ph[ch].db+60)/70*100)+'%';
   }
   return{el:wrap,setLevel};
