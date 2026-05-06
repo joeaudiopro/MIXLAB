@@ -623,8 +623,35 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
   animation:splashFadeIn 1.4s both;
 }
 
-/* enter button */
-.splash-enter{
+/* social links */
+.splash-social{
+  display:flex;align-items:center;gap:8px;
+  margin-top:10px;
+  animation:splashFadeIn 2.4s cubic-bezier(0.16,1,0.3,1) both;
+}
+.splash-social-link{
+  display:flex;align-items:center;gap:5px;
+  font-family:'Share Tech Mono',monospace;
+  font-size:9px;letter-spacing:1px;
+  color:#555;text-decoration:none;
+  transition:color .2s;
+  padding:3px 8px;
+  border:1px solid #2a2a2a;
+  border-radius:20px;
+  background:#0a0a0a;
+}
+.splash-social-link:hover{
+  color:var(--accent);
+  border-color:var(--accent);
+  background:#1a1200;
+}
+.splash-social-link svg{
+  flex-shrink:0;
+  opacity:.6;
+  transition:opacity .2s;
+}
+.splash-social-link:hover svg{ opacity:1; }
+.splash-social-sep{color:#333;font-size:10px;}
   font-family:'Share Tech Mono',monospace;
   font-size:10px;letter-spacing:4px;
   color:var(--accent);
@@ -859,6 +886,23 @@ body.splash-active #appRoot{
     <div class="splash-rule"></div>
     <div class="splash-credit">by <span>Joe Mendoza</span></div>
     <div class="splash-version">v3.0 · Web Audio Engine</div>
+
+    <!-- Social links -->
+    <div class="splash-social">
+      <a href="https://instagram.com/TU_USUARIO" target="_blank" class="splash-social-link" title="Instagram personal">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+        </svg>
+        @joemendoza
+      </a>
+      <span class="splash-social-sep">·</span>
+      <a href="https://instagram.com/mixlab.audio" target="_blank" class="splash-social-link" title="Instagram MixLab">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+        </svg>
+        @mixlab.audio
+      </a>
+    </div>
 
     <button class="splash-enter" id="splashEnter">ENTER →</button>
   </div>
@@ -1957,10 +2001,14 @@ function createDynamics(inputNode,outputNode){
   compNode.threshold.value=-24; compNode.knee.value=6; compNode.ratio.value=4;
   compNode.attack.value=0.003; compNode.release.value=0.25;
 
+  // Make-up gain — compensates level lost by compression
+  const makeupGain=ctx.createGain(); makeupGain.gain.value=1;
+
   inputNode.connect(gateInAnalyser);
   inputNode.connect(gateGainNode);
   gateGainNode.connect(compNode);
-  compNode.connect(outputNode);
+  compNode.connect(makeupGain);
+  makeupGain.connect(outputNode);
 
   let gateEnabled=false,compEnabled=false;
   let gateThr=-40,gateAtt=0.005,gateRel=0.1;
@@ -1991,6 +2039,7 @@ function createDynamics(inputNode,outputNode){
     setCompAttack:v=>{compNode.attack.value=v/1000;},
     setCompRelease:v=>{compNode.release.value=v/1000;},
     setCompKnee:v=>{compNode.knee.value=v;},
+    setMakeupGain:v=>{makeupGain.gain.value=dbToGain(v);},
   };
 }
 
@@ -2310,7 +2359,8 @@ function createChannel(i){
   const cAttK=createKnob({label:'ATT',  min:0.1,max:200, value:3,  size:26,color:'#e8a060',unit:'ms',decimals:0,onChange:v=>dyn.setCompAttack(v)});
   const cRelK=createKnob({label:'REL',  min:10, max:2000,value:250,size:26,color:'#e8a060',unit:'ms',decimals:0,onChange:v=>dyn.setCompRelease(v)});
   const cKneK=createKnob({label:'KNEE', min:0,  max:40,  value:6,  size:26,color:'#e8a060',unit:'dB',decimals:0,onChange:v=>dyn.setCompKnee(v)});
-  compKnobs.appendChild(cThrK.el);compKnobs.appendChild(cRatK.el);compKnobs.appendChild(cAttK.el);compKnobs.appendChild(cRelK.el);compKnobs.appendChild(cKneK.el);
+  const cMkpK=createKnob({label:'GAIN', min:0,  max:24,  value:0,  size:26,color:'#20e8a0',unit:'dB',decimals:0,unipolar:true,onChange:v=>dyn.setMakeupGain(v)});
+  compKnobs.appendChild(cThrK.el);compKnobs.appendChild(cRatK.el);compKnobs.appendChild(cAttK.el);compKnobs.appendChild(cRelK.el);compKnobs.appendChild(cKneK.el);compKnobs.appendChild(cMkpK.el);
   dynSec.appendChild(compH.el);dynSec.appendChild(compGR.el);dynSec.appendChild(compKnobs);
   el.appendChild(dynSec);
 
@@ -2736,7 +2786,7 @@ function createChannel(i){
       muted:ch.isMuted, soloed:ch.isSolo,
       hpf:hpfActive, hpfFreq:hpfFreq, phantom:phantomBtn.classList.contains('active-48v'),
       gThr:gThrK.getValue(), gAtt:gAttK.getValue(), gRel:gRelK.getValue(),
-      cThr:cThrK.getValue(), cRat:cRatK.getValue(), cAtt:cAttK.getValue(), cRel:cRelK.getValue(), cKne:cKneK.getValue(),
+      cThr:cThrK.getValue(), cRat:cRatK.getValue(), cAtt:cAttK.getValue(), cRel:cRelK.getValue(), cKne:cKneK.getValue(), cMkp:cMkpK.getValue(),
     };
   }
 
@@ -2764,7 +2814,8 @@ function createChannel(i){
     if(s.phantom!==phantomBtn.classList.contains('active-48v'))phantomBtn.click();
     gThrK.setValue(s.gThr??-40);gAttK.setValue(s.gAtt??5);gRelK.setValue(s.gRel??100);
     if(s.gThr!==undefined)dyn.setGateThreshold(s.gThr);
-    cThrK.setValue(s.cThr??-24);cRatK.setValue(s.cRat??4);cAttK.setValue(s.cAtt??3);cRelK.setValue(s.cRel??250);cKneK.setValue(s.cKne??6);
+    cThrK.setValue(s.cThr??-24);cRatK.setValue(s.cRat??4);cAttK.setValue(s.cAtt??3);cRelK.setValue(s.cRel??250);cKneK.setValue(s.cKne??6);cMkpK.setValue(s.cMkp??0);
+    dyn.setMakeupGain(s.cMkp??0);
     if(s.cThr!==undefined){dyn.setCompThreshold(s.cThr);dyn.setCompRatio(s.cRat??4);dyn.setCompAttack(s.cAtt??3);dyn.setCompRelease(s.cRel??250);dyn.setCompKnee(s.cKne??6);}
   }
 
