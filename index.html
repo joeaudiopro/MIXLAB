@@ -2074,53 +2074,19 @@ function createChannel(i){
 
   const colorBarTop=document.createElement('div');
   colorBarTop.className='ch-color-bar';
-  colorBarTop.style.cssText=`background:${chColor};position:relative;`;
+  colorBarTop.style.cssText=`background:${chColor};cursor:pointer;`;
   colorBarTop.title='Clic para elegir color del canal';
   el.appendChild(colorBarTop);
 
-  // Floating picker — attached to body to avoid channel overflow clipping
-  const picker=document.createElement('div');
-  picker.className='color-picker-popup';
-  picker.style.cssText='display:none;position:fixed;z-index:9999;';
-  document.body.appendChild(picker);
-
-  CH_COLORS.forEach(c=>{
-    const sw=document.createElement('div');sw.className='color-swatch';sw.style.background=c;
-    sw.addEventListener('click',e=>{
-      e.stopPropagation();
-      chColor=c;
-      colorBarTop.style.background=c;
-      if(colorBarBottom){ colorBarBottom.style.background=c; colorBarBottom.style.boxShadow=`0 0 5px ${c}88`; }
-      picker.style.display='none';
-    });
-    picker.appendChild(sw);
-  });
-  const resetSw=document.createElement('div');
-  resetSw.className='color-swatch';
-  resetSw.style.cssText='background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:9px;color:#666;';
-  resetSw.textContent='✕';
-  resetSw.addEventListener('click',e=>{
-    e.stopPropagation();
-    chColor='#2a2a2a';
-    colorBarTop.style.background='#2a2a2a';
-    if(colorBarBottom){ colorBarBottom.style.background='#2a2a2a'; colorBarBottom.style.boxShadow='none'; }
-    picker.style.display='none';
-  });
-  picker.appendChild(resetSw);
-
+  // Use shared singleton picker
   colorBarTop.addEventListener('click', e=>{
     e.stopPropagation();
-    // Position picker above the color bar
-    const rect = colorBarTop.getBoundingClientRect();
-    picker.style.left = Math.min(rect.left, window.innerWidth - 120) + 'px';
-    picker.style.top  = (rect.top - picker.offsetHeight - 6) + 'px';
-    picker.style.display = picker.style.display==='flex' ? 'none' : 'flex';
-    // Recalculate position after display:flex is applied
-    requestAnimationFrame(()=>{
-      picker.style.top = (rect.top - picker.offsetHeight - 6) + 'px';
+    sharedColorPicker.show(colorBarTop, (c)=>{
+      chColor=c;
+      colorBarTop.style.background=c;
+      if(colorBarBottom){ colorBarBottom.style.background=c; colorBarBottom.style.boxShadow=`0 0 5px ${c}66`; }
     });
   });
-  document.addEventListener('click', ()=>{ picker.style.display='none'; }, {passive:true});
 
   const num=document.createElement('div');num.className='ch-number';num.textContent=String(i+1).padStart(2,'0');el.appendChild(num);
 
@@ -2493,25 +2459,21 @@ function createChannel(i){
     fl.textContent=e.target.files[0].name.substring(0,15);fl.classList.add('loaded');
   });
   function play(when){
-    if(!buffer) return;
+    const buf = buffer || ch.buffer; // local file OR stem library
+    if(!buf) return;
     const src = ctx.createBufferSource();
-    src.buffer = buffer;
+    src.buffer = buf;
     src.connect(trimNode);
     src.start(when);
     activeSources.push(src);
-    // When track ends, remove from active sources and check if all done
     src.onended = () => {
       src._stopped = true;
       const idx = activeSources.indexOf(src);
       if(idx > -1) activeSources.splice(idx, 1);
-      // If all sources finished naturally, reset play button to stopped state
       if(activeSources.length === 0){
         const pb = document.getElementById('playAll');
         const sb = document.getElementById('stopAll');
-        if(pb && sb){
-          pb.classList.remove('active');
-          sb.classList.add('active');
-        }
+        if(pb && sb){ pb.classList.remove('active'); sb.classList.add('active'); }
       }
     };
   }
@@ -2767,6 +2729,63 @@ function updateMix(){
   });
 }
 
+// ══════════════════════════════════════════════════
+//  SHARED COLOR PICKER SINGLETON
+//  One picker for all 16 channels — avoids 16 floating divs
+// ══════════════════════════════════════════════════
+const sharedColorPicker = (() => {
+  const COLORS = ['#e82020','#e86020','#e8a020','#e8e020','#20e860','#20e8c0',
+                  '#20a0e8','#6060e8','#a020e8','#e820a0','#e8e8e8','#888888'];
+  const el = document.createElement('div');
+  el.className = 'color-picker-popup';
+  el.style.cssText = 'display:none;position:fixed;z-index:9999;';
+  document.body.appendChild(el);
+
+  let onPick = null;
+
+  COLORS.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch';
+    sw.style.background = c;
+    sw.addEventListener('click', e => {
+      e.stopPropagation();
+      if(onPick) onPick(c);
+      el.style.display = 'none';
+    });
+    el.appendChild(sw);
+  });
+
+  // Reset swatch
+  const reset = document.createElement('div');
+  reset.className = 'color-swatch';
+  reset.style.cssText = 'background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:9px;color:#666;';
+  reset.textContent = '✕';
+  reset.addEventListener('click', e => {
+    e.stopPropagation();
+    if(onPick) onPick('#2a2a2a');
+    el.style.display = 'none';
+  });
+  el.appendChild(reset);
+
+  document.addEventListener('click', () => { el.style.display = 'none'; }, {passive:true});
+
+  return {
+    show(anchor, callback){
+      onPick = callback;
+      el.style.display = 'flex';
+      const rect = anchor.getBoundingClientRect();
+      const pw = el.offsetWidth  || 120;
+      const ph = el.offsetHeight || 64;
+      let left = rect.left;
+      let top  = rect.bottom + 4;
+      if(top + ph > window.innerHeight - 10) top = rect.top - ph - 4;
+      if(left + pw > window.innerWidth  - 10) left = window.innerWidth - pw - 10;
+      el.style.left = left + 'px';
+      el.style.top  = top  + 'px';
+    }
+  };
+})();
+
 for(let i=0;i<16;i++) createChannel(i);
 updateSceneBtns();
 
@@ -3008,23 +3027,28 @@ const BASE_URL = 'https://joeaudiopro.github.io/MIXLAB/stems/';
 async function loadStemSet(setId, btn, statusEl){
   try {
     statusEl.textContent = 'Cargando info...';
+    statusEl.style.color = 'var(--dim)';
     stemProgress.style.display = 'block';
     stemProgressBar.style.width = '5%';
     stemList.innerHTML = '';
 
     // Fetch info.json
     const infoUrl = `${BASE_URL}${setId}/info.json`;
+    console.log('Fetching:', infoUrl);
     const res = await fetch(infoUrl);
-    if(!res.ok) throw new Error('No se encontró el set');
+    if(!res.ok) throw new Error(`info.json: ${res.status} ${res.statusText}`);
     const info = await res.json();
+    console.log('Loaded info:', info);
 
     statusEl.textContent = `${info.name} — cargando stems...`;
     const total = info.stems.length;
 
-    // Load each stem
     for(let i = 0; i < total; i++){
       const stem = info.stems[i];
-      const url  = `${BASE_URL}${setId}/${encodeURIComponent(stem.file)}`;
+      // Encode filename — replace spaces with %20
+      const encodedFile = stem.file.split('').map(c => c === ' ' ? '%20' : c).join('');
+      const url = `${BASE_URL}${setId}/${encodedFile}`;
+      console.log(`Loading stem ${i+1}/${total}:`, url);
 
       // Show stem in list
       const row = document.createElement('div');
@@ -3040,46 +3064,56 @@ async function loadStemSet(setId, btn, statusEl){
       row.appendChild(dot); row.appendChild(name); row.appendChild(loadingEl);
       stemList.appendChild(row);
 
-      // Fetch and decode audio
       try {
-        const audioRes  = await fetch(url);
-        const arrayBuf  = await audioRes.arrayBuffer();
-        const audioBuf  = await ctx.decodeAudioData(arrayBuf);
+        const audioRes = await fetch(url);
+        if(!audioRes.ok) throw new Error(`HTTP ${audioRes.status}`);
+        const arrayBuf = await audioRes.arrayBuffer();
+        const audioBuf = await ctx.decodeAudioData(arrayBuf);
 
-        // Assign to channel
         const ch = channels[i];
         if(ch){
+          // Set buffer — both local and on channel object
           ch.buffer = audioBuf;
-          // Update local buffer reference via setter
+          // Sync local buffer variable via a setter trick
+          ch._stemBuffer = audioBuf;
+
+          // Update file label
           const fileLabel = ch.el ? ch.el.querySelector('.file-label') : null;
           if(fileLabel){ fileLabel.textContent = stem.label; fileLabel.classList.add('loaded'); }
+
           // Update channel label
           const chLabelEl = ch.el ? ch.el.querySelector('.ch-label') : null;
           if(chLabelEl) chLabelEl.textContent = stem.label;
-          // Update color bars
-          const colorBars = ch.el ? ch.el.querySelectorAll('.ch-color-bar') : [];
-          colorBars.forEach(bar => { bar.style.background = stem.color; });
 
-          loadingEl.textContent = '✔';
-          loadingEl.style.color = '#20e880';
-          name.style.color = '#c8c8c8';
+          // Update color bars
+          if(ch.el){
+            ch.el.querySelectorAll('.ch-color-bar').forEach(bar => {
+              bar.style.background = stem.color;
+              bar.style.boxShadow  = `0 0 5px ${stem.color}66`;
+            });
+          }
         }
+
+        loadingEl.textContent = '✔';
+        loadingEl.style.color = '#20e880';
+        name.style.color = '#c8c8c8';
+
       } catch(e) {
         loadingEl.textContent = '✗';
         loadingEl.style.color = '#e82020';
-        console.warn('Error cargando stem:', stem.file, e);
+        loadingEl.title = e.message;
+        console.warn(`Error stem ${stem.file}:`, e.message);
       }
 
-      // Update progress
       stemProgressBar.style.width = Math.round((i+1)/total*100) + '%';
     }
 
-    statusEl.textContent = `✔ ${info.name} — ${total} stems cargados`;
+    statusEl.textContent = `✔ ${info.name} listo — presiona PLAY`;
     statusEl.style.color = '#20e880';
-    setTimeout(()=>{ stemProgress.style.display='none'; stemProgressBar.style.width='0%'; }, 1000);
+    setTimeout(()=>{ stemProgress.style.display='none'; stemProgressBar.style.width='0%'; }, 1500);
 
   } catch(e) {
-    statusEl.textContent = '✗ Error: ' + e.message;
+    statusEl.textContent = '✗ ' + e.message;
     statusEl.style.color = '#e82020';
     stemProgress.style.display = 'none';
     console.error('loadStemSet error:', e);
