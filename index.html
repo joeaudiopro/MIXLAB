@@ -664,6 +664,23 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
   animation:splashFadeIn 2.4s both, splashPulse 2.5s 2.5s ease-in-out infinite;
   margin-top:24px;
 }
+/* enter button */
+.splash-enter{
+  font-family:'Share Tech Mono',monospace;
+  font-size:11px;
+  letter-spacing:4px;
+  padding:10px 32px;
+  border:1px solid var(--accent);
+  border-radius:3px;
+  background:transparent;
+  color:var(--accent);
+  cursor:pointer;
+  margin-top:16px;
+  transition:all .25s;
+  text-shadow:0 0 8px #e8a02066;
+  box-shadow:0 0 12px #e8a02022;
+  animation:splashFadeIn 2.6s cubic-bezier(0.16,1,0.3,1) both;
+}
 .splash-enter:hover{
   background:#1e1600;
   border-color:var(--accent);
@@ -2294,8 +2311,38 @@ function createChannel(i){
   analyser.maxDecibels = 0;
   const analyserBuf=new Uint8Array(analyser.fftSize);
 
+  // ── HARMONIC SATURATION ──
+  // Subtle analog warmth — transparent at rest, musical when EQ is pushed
+  const satNode = ctx.createWaveShaper();
+  satNode.oversample = '4x';
+  function buildSatCurve(amount){
+    const n=256, curve=new Float32Array(n);
+    for(let i=0;i<n;i++){
+      const x=(i*2/n)-1;
+      curve[i]=(Math.PI+amount)*x/(Math.PI+amount*Math.abs(x));
+    }
+    return curve;
+  }
+  satNode.curve = buildSatCurve(0.3); // nearly transparent at rest
+
+  // ── EXPONENTIAL EQ CURVE ──
+  // Maps knob position to dB gain with exponential response
+  // Subtle in the middle, aggressive at extremes — like analog EQ
+  const EQ_K = 2.5;
+  function eqCurve(knobVal, maxDb=24){
+    if(knobVal===0) return 0;
+    const sign=knobVal>0?1:-1;
+    const norm=Math.abs(knobVal)/maxDb;
+    const curved=(Math.exp(norm*EQ_K)-1)/(Math.exp(EQ_K)-1);
+    return sign*curved*maxDb;
+  }
+  function updateSaturation(){
+    const activity=(Math.abs(highEQ.gain.value)+Math.abs(midEQ.gain.value)+Math.abs(lowEQ.gain.value))/(24*3);
+    satNode.curve=buildSatCurve(0.3+activity*2.0);
+  }
+
   trimNode.connect(hpfNode); hpfNode.connect(lowEQ); lowEQ.connect(midEQ); midEQ.connect(highEQ);
-  highEQ.connect(dynIn);
+  highEQ.connect(satNode); satNode.connect(dynIn);
   dynOut.connect(faderNode); faderNode.connect(chPowerGain); chPowerGain.connect(panNode); panNode.connect(analyser); analyser.connect(masterBus);
 
   const pflGain=ctx.createGain(); pflGain.gain.value=0;
@@ -2395,13 +2442,13 @@ function createChannel(i){
   // Also focus on channel click
   el.addEventListener('mousedown', focusThisChannel, { capture:true });
 
-  const hiK=createKnob({label:'HI',min:-24,max:24,value:0,size:32,color:'#60c0ff',unit:'dB',decimals:0,freqLabel:fmtFreq(8000),onChange:v=>{highEQ.gain.value=v;focusThisChannel();}});
+  const hiK=createKnob({label:'HI',min:-24,max:24,value:0,size:32,color:'#60c0ff',unit:'dB',decimals:0,freqLabel:fmtFreq(8000),onChange:v=>{highEQ.gain.value=eqCurve(v);updateSaturation();focusThisChannel();}});
   hiBand.appendChild(hiK.el);eqSec.appendChild(hiBand);
 
   const MID_FREQS=[200,300,400,500,630,800,1000,1250,1600,2000,2500,3150,4000,5000];
   let midFreqIdx=6;
   const midBand=document.createElement('div');midBand.className='eq-band';
-  const midK=createKnob({label:'MID',min:-24,max:24,value:0,size:32,color:'#e8e020',unit:'dB',decimals:0,freqLabel:fmtFreq(MID_FREQS[midFreqIdx]),onChange:v=>{midEQ.gain.value=v;focusThisChannel();}});
+  const midK=createKnob({label:'MID',min:-24,max:24,value:0,size:32,color:'#e8e020',unit:'dB',decimals:0,freqLabel:fmtFreq(MID_FREQS[midFreqIdx]),onChange:v=>{midEQ.gain.value=eqCurve(v);updateSaturation();focusThisChannel();}});
   midBand.appendChild(midK.el);
   const swRow=document.createElement('div');swRow.style.cssText='display:flex;align-items:center;gap:3px;margin-top:2px;';
   swRow.appendChild(Object.assign(document.createElement('div'),{style:'font-size:7px;color:#444;letter-spacing:.5px;',textContent:'FREQ'}));
@@ -2410,7 +2457,7 @@ function createChannel(i){
   swRow.appendChild(swK.el);midBand.appendChild(swRow);eqSec.appendChild(midBand);
 
   const loBand=document.createElement('div');loBand.className='eq-band';
-  const loK=createKnob({label:'LO',min:-24,max:24,value:0,size:32,color:'#e87020',unit:'dB',decimals:0,freqLabel:fmtFreq(120),onChange:v=>{lowEQ.gain.value=v;focusThisChannel();}});
+  const loK=createKnob({label:'LO',min:-24,max:24,value:0,size:32,color:'#e87020',unit:'dB',decimals:0,freqLabel:fmtFreq(120),onChange:v=>{lowEQ.gain.value=eqCurve(v);updateSaturation();focusThisChannel();}});
   loBand.appendChild(loK.el);eqSec.appendChild(loBand);
   el.appendChild(eqSec);
 
