@@ -1,0 +1,28 @@
+{
+  "name": "Salsa en Vivo — 16ch",
+  "genre": "Salsa",
+  "channels": 16,
+  "difficulty": "advanced",
+  "credits": {
+    "recorded_by": "Joe Mendoza",
+    "musicians": []
+  },
+  "stems": [
+    {"file": "1 Kick drum.mp3",        "label": "Kick",          "color": "#e82020"},
+    {"file": "2 snare.mp3",             "label": "Snare",         "color": "#e86020"},
+    {"file": "3 timbal l.mp3",          "label": "Timbal L",      "color": "#e8a020"},
+    {"file": "4 timbal r.mp3",          "label": "Timbal R",      "color": "#e8e020"},
+    {"file": "5 campana timbal.mp3",    "label": "Campana",       "color": "#20e860"},
+    {"file": "6 conga.mp3",             "label": "Conga",         "color": "#20e8c0"},
+    {"file": "7 tumba.mp3",             "label": "Tumba",         "color": "#20a0e8"},
+    {"file": "8 bongo.mp3",             "label": "Bongo",         "color": "#6060e8"},
+    {"file": "9-campana-de-mano.mp3",   "label": "Campana Mano",  "color": "#a020e8"},
+    {"file": "10-bass.mp3",             "label": "Bajo",          "color": "#e820a0"},
+    {"file": "11-piano-l.mp3",          "label": "Piano L",       "color": "#20e8a0"},
+    {"file": "12-piano-r.mp3",          "label": "Piano R",       "color": "#20c0e8"},
+    {"file": "13-sax-.mp3",             "label": "Saxofón",       "color": "#e8e8e8"},
+    {"file": "14-trombon-1.mp3",        "label": "Trombón 1",     "color": "#c0a020"},
+    {"file": "15-trombon-2.mp3",        "label": "Trombón 2",     "color": "#c08020"},
+    {"file": "16-trombon-3.mp3",        "label": "Trombón 3",     "color": "#c06020"}
+  ]
+}
