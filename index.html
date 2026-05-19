@@ -918,7 +918,7 @@ body.splash-active #appRoot{
 
     <!-- Social links -->
     <div class="splash-social">
-      <a href="https://instagram.com/joeaudiopro" target="_blank" class="splash-social-link" title="Instagram personal">
+      <a href="https://instagram.com/TU_USUARIO" target="_blank" class="splash-social-link" title="Instagram personal">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
         </svg>
@@ -1032,6 +1032,14 @@ body.splash-active #appRoot{
     <span class="pfl-label">PFL</span>
     <span class="pfl-active-label" id="pflActiveLabel">—</span>
   </div>
+  <!-- FOH OUTPUT -->
+  <div class="pfl-out-wrap" style="border-color:#2a1a00;background:#1a1000;">
+    <span class="pfl-out-label" style="color:var(--accent);">🔊 FOH OUT</span>
+    <select class="pfl-out-select" id="fohOutSelect">
+      <option value="default">Salida principal</option>
+    </select>
+    <button class="pfl-out-btn" id="fohOutScanBtn" style="border-color:#444;color:var(--dim);">⟳</button>
+  </div>
   <!-- PFL OUTPUT -->
   <div class="pfl-out-wrap">
     <span class="pfl-out-label">🎧 PFL OUT</span>
@@ -1050,17 +1058,6 @@ body.splash-active #appRoot{
   </div>
   <!-- NORMAL / NINJA MODE -->
   <button class="mode-btn" id="modeBtn">🥷 NINJA</button>
-  <!-- Audio engine recovery -->
-  <button id="audioRecoverBtn" title="Recuperar motor de audio" style="
-    font-family:'Share Tech Mono',monospace;font-size:9px;padding:4px 8px;
-    border:1px solid #333;border-radius:2px;background:#1a1a1a;
-    color:#666;cursor:pointer;letter-spacing:.5px;transition:all .2s;
-  " onclick="
-    ctx.resume().then(()=>{
-      this.style.color='var(--green)';
-      setTimeout(()=>this.style.color='#666',1000);
-    });
-  ">⟳ AUDIO</button>
   <span style="margin-left:auto;font-size:9px;color:var(--dim)">MixLab v3.0 · Joe Mendoza</span>
 </div>
 
@@ -1212,6 +1209,97 @@ fx2Bus.connect(delayNode); delayNode.connect(delayRetGain); delayRetGain.connect
 const monitorGain = ctx.createGain(); monitorGain.gain.value = 1;
 monitorGain.connect(ctx.destination);
 
+// ── FOH OUTPUT (setSinkId en ctx principal) ──
+let fohOutDeviceId = 'default';
+
+async function setFohOutput(deviceId) {
+  fohOutDeviceId = deviceId || 'default';
+  if(ctx.setSinkId) {
+    try {
+      await ctx.setSinkId(fohOutDeviceId === 'default' ? '' : fohOutDeviceId);
+    } catch(e) {
+      console.warn('FOH setSinkId error:', e.message);
+    }
+  }
+}
+
+async function scanFohOutputs() {
+  const selectEl = document.getElementById('fohOutSelect');
+  if(!selectEl) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter(d => d.kind === 'audiooutput');
+    selectEl.innerHTML = '';
+    const defOpt = document.createElement('option');
+    defOpt.value = 'default';
+    defOpt.textContent = '🔊 Salida principal (default)';
+    selectEl.appendChild(defOpt);
+    outputs.forEach((d, idx) => {
+      if(d.deviceId === 'default') return;
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = '🔊 ' + (d.label || 'Salida ' + (idx+1));
+      selectEl.appendChild(opt);
+    });
+    selectEl.value = fohOutDeviceId;
+    showToast('FOH: ' + selectEl.options[selectEl.selectedIndex]?.textContent);
+  } catch(e) {
+    console.warn('Error escaneando salidas FOH:', e);
+  }
+}
+
+// ── MASTER BUS PROCESSOR (EQ Gráfico 10 bandas + Compresor) ──
+// Cadena: masterBus → masterEQIn → [10 filtros peaking] → masterCompressor → masterProcOut → monitorGain
+const MASTER_EQ_FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const masterEQFilters = MASTER_EQ_FREQS.map(freq => {
+  const f = ctx.createBiquadFilter();
+  f.type = 'peaking';
+  f.frequency.value = freq;
+  f.Q.value = 1.4;
+  f.gain.value = 0;
+  return f;
+});
+// Chain EQ filters in series
+for(let i = 1; i < masterEQFilters.length; i++) {
+  masterEQFilters[i-1].connect(masterEQFilters[i]);
+}
+// Master compressor node
+const masterComp = ctx.createDynamicsCompressor();
+masterComp.threshold.value = -24;
+masterComp.knee.value = 6;
+masterComp.ratio.value = 2;
+masterComp.attack.value = 0.003;
+masterComp.release.value = 0.25;
+
+// Master makeup gain
+const masterMakeupGain = ctx.createGain();
+masterMakeupGain.gain.value = 1;
+
+// Master proc bypass gain (1=active, 0=bypass)
+let masterProcActive = false; // starts bypassed
+const masterProcBypassGain = ctx.createGain();
+masterProcBypassGain.gain.value = 0; // off by default
+
+// Connect chain: masterBus splits to direct (existing monitorGain) and proc chain
+masterEQFilters[0].connect(masterEQFilters.length > 1 ? masterEQFilters[1] : masterComp); // already chained above
+masterEQFilters[masterEQFilters.length-1].connect(masterComp);
+masterComp.connect(masterMakeupGain);
+masterMakeupGain.connect(masterProcBypassGain);
+masterProcBypassGain.connect(monitorGain);
+
+function connectMasterProc(active) {
+  masterProcActive = active;
+  masterProcBypassGain.gain.setTargetAtTime(active ? 1 : 0, ctx.currentTime, 0.01);
+  // When proc is active, remove direct masterBus → monitorGain to avoid parallel
+  if(active) {
+    try { masterBus.disconnect(monitorGain); } catch(e){}
+    masterBus.connect(masterEQFilters[0]);
+  } else {
+    try { masterBus.disconnect(masterEQFilters[0]); } catch(e){}
+    try { masterBus.connect(monitorGain); } catch(e){}
+  }
+}
+
 // Por defecto escuchamos FOH (masterBus)
 let listenBus = masterBus;
 masterBus.connect(monitorGain);
@@ -1312,6 +1400,7 @@ async function scanAudioInputs(){
     });
 
     setTimeout(scanPflOutputs, 300);
+    setTimeout(scanFohOutputs, 350);
 
   } catch(e) {
     statusEl.textContent = e.name === 'NotAllowedError'
@@ -2000,15 +2089,7 @@ function createVUMeterWithScale(){
     const pct=Math.max(0,(db-VU_MIN)/VU_RANGE*100);
     b.bar.style.height=pct+'%';
     b.bar.style.background=db>-3?'linear-gradient(to top,#e82020,#ff4040)':db>-9?'linear-gradient(to top,#e8c020,#ffe040)':db>-20?'linear-gradient(to top,#20e860,#40ff80)':'linear-gradient(to top,#20a840,#20e860)';
-    if(db>ph[ch].db){
-      ph[ch].db=db;
-      clearTimeout(ph[ch].t);
-      // Hold peak for 1.5s then decay it
-      ph[ch].t=setTimeout(()=>{
-        ph[ch].db=-100;
-        b.pk.style.bottom='0px';
-      }, 1500);
-    }
+    if(db>ph[ch].db){ph[ch].db=db;clearTimeout(ph[ch].t);ph[ch].t=setTimeout(()=>{ph[ch].db=-100;},2000);}
     b.pk.style.bottom=Math.max(0,(ph[ch].db-VU_MIN)/VU_RANGE*100)+'%';
     // CLIP LED: triggers at -3dBFS or higher
     if(db>=-1 && !clipHold){clipHold=true;clipLed.classList.add('clip');}
@@ -2033,14 +2114,7 @@ function createVUMeter(){
     const pct=Math.max(0,(db+60)/70*100);
     b.bar.style.height=pct+'%';
     b.bar.style.background=db>-3?'linear-gradient(to top,#e82020,#ff4040)':db>-9?'linear-gradient(to top,#e8c020,#ffe040)':db>-20?'linear-gradient(to top,#20e860,#40ff80)':'linear-gradient(to top,#20a840,#20e860)';
-    if(db>ph[ch].db){
-      ph[ch].db=db;
-      clearTimeout(ph[ch].t);
-      ph[ch].t=setTimeout(()=>{
-        ph[ch].db=-100;
-        b.pk.style.bottom='0px';
-      }, 1500);
-    }
+    if(db>ph[ch].db){ph[ch].db=db;clearTimeout(ph[ch].t);ph[ch].t=setTimeout(()=>{ph[ch].db=-100;},2000);}
     b.pk.style.bottom=Math.max(0,(ph[ch].db+60)/70*100)+'%';
   }
   return{el:wrap,setLevel};
@@ -2382,28 +2456,11 @@ function createChannel(i){
     }
     return curve;
   }
-  // Start with identity curve (completely transparent — no processing)
-  // This prevents noise when no signal is present
-  function buildIdentityCurve(){
-    const n=256, curve=new Float32Array(n);
-    for(let i=0;i<n;i++) curve[i]=(i*2/n)-1; // linear passthrough
-    return curve;
-  }
-  satNode.curve = buildIdentityCurve();
+  satNode.curve = buildSatCurve(0.3); // nearly transparent at rest
 
-  function updateSaturation(){
-    const hiVal  = Math.abs(highEQ.gain.value);
-    const midVal = Math.abs(midEQ.gain.value);
-    const loVal  = Math.abs(lowEQ.gain.value);
-    const activity = (hiVal + midVal + loVal) / (24*3);
-    if(activity < 0.05){
-      satNode.curve = buildIdentityCurve();
-    } else {
-      satNode.curve = buildSatCurve(0.3 + activity * 2.0);
-    }
-  }
-
-  // Exponential EQ curve — subtle in middle, aggressive at extremes
+  // ── EXPONENTIAL EQ CURVE ──
+  // Maps knob position to dB gain with exponential response
+  // Subtle in the middle, aggressive at extremes — like analog EQ
   const EQ_K = 2.5;
   function eqCurve(knobVal, maxDb=24){
     if(knobVal===0) return 0;
@@ -2412,9 +2469,13 @@ function createChannel(i){
     const curved=(Math.exp(norm*EQ_K)-1)/(Math.exp(EQ_K)-1);
     return sign*curved*maxDb;
   }
+  function updateSaturation(){
+    const activity=(Math.abs(highEQ.gain.value)+Math.abs(midEQ.gain.value)+Math.abs(lowEQ.gain.value))/(24*3);
+    satNode.curve=buildSatCurve(0.3+activity*2.0);
+  }
 
   trimNode.connect(hpfNode); hpfNode.connect(lowEQ); lowEQ.connect(midEQ); midEQ.connect(highEQ);
-  highEQ.connect(dynIn); // satNode removed — was causing digital artifacts
+  highEQ.connect(satNode); satNode.connect(dynIn);
   dynOut.connect(faderNode); faderNode.connect(chPowerGain); chPowerGain.connect(panNode); panNode.connect(analyser); analyser.connect(masterBus);
 
   const pflGain=ctx.createGain(); pflGain.gain.value=0;
@@ -2495,7 +2556,7 @@ function createChannel(i){
   dynSec.appendChild(compH.el);dynSec.appendChild(compGR.el);dynSec.appendChild(compKnobs);
   el.appendChild(dynSec);
 
-  // EQ  ±24dB  vertical
+  // EQ  ±32dB  vertical
   const eqSec=document.createElement('div');eqSec.className='eq-section';
   eqSec.appendChild(Object.assign(document.createElement('div'),{className:'section-title',textContent:'EQ'}));
 
@@ -2526,13 +2587,13 @@ function createChannel(i){
   // Also focus on channel click
   el.addEventListener('mousedown', focusThisChannel, { capture:true });
 
-  const hiK=createKnob({label:'HI',min:-24,max:24,value:0,size:32,color:'#60c0ff',unit:'dB',decimals:0,freqLabel:fmtFreq(8000),onChange:v=>{highEQ.gain.value=eqCurve(v);focusThisChannel();}});
+  const hiK=createKnob({label:'HI',min:-32,max:32,value:0,size:32,color:'#60c0ff',unit:'dB',decimals:0,freqLabel:fmtFreq(8000),onChange:v=>{highEQ.gain.value=eqCurve(v);updateSaturation();focusThisChannel();}});
   hiBand.appendChild(hiK.el);eqSec.appendChild(hiBand);
 
   const MID_FREQS=[200,300,400,500,630,800,1000,1250,1600,2000,2500,3150,4000,5000];
   let midFreqIdx=6;
   const midBand=document.createElement('div');midBand.className='eq-band';
-  const midK=createKnob({label:'MID',min:-24,max:24,value:0,size:32,color:'#e8e020',unit:'dB',decimals:0,freqLabel:fmtFreq(MID_FREQS[midFreqIdx]),onChange:v=>{midEQ.gain.value=eqCurve(v);focusThisChannel();}});
+  const midK=createKnob({label:'MID',min:-32,max:32,value:0,size:32,color:'#e8e020',unit:'dB',decimals:0,freqLabel:fmtFreq(MID_FREQS[midFreqIdx]),onChange:v=>{midEQ.gain.value=eqCurve(v);updateSaturation();focusThisChannel();}});
   midBand.appendChild(midK.el);
   const swRow=document.createElement('div');swRow.style.cssText='display:flex;align-items:center;gap:3px;margin-top:2px;';
   swRow.appendChild(Object.assign(document.createElement('div'),{style:'font-size:7px;color:#444;letter-spacing:.5px;',textContent:'FREQ'}));
@@ -2541,7 +2602,7 @@ function createChannel(i){
   swRow.appendChild(swK.el);midBand.appendChild(swRow);eqSec.appendChild(midBand);
 
   const loBand=document.createElement('div');loBand.className='eq-band';
-  const loK=createKnob({label:'LO',min:-24,max:24,value:0,size:32,color:'#e87020',unit:'dB',decimals:0,freqLabel:fmtFreq(120),onChange:v=>{lowEQ.gain.value=eqCurve(v);focusThisChannel();}});
+  const loK=createKnob({label:'LO',min:-32,max:32,value:0,size:32,color:'#e87020',unit:'dB',decimals:0,freqLabel:fmtFreq(120),onChange:v=>{lowEQ.gain.value=eqCurve(v);updateSaturation();focusThisChannel();}});
   loBand.appendChild(loK.el);eqSec.appendChild(loBand);
   el.appendChild(eqSec);
 
@@ -3017,24 +3078,16 @@ const masterAnalysers=[];
 function makeMasterCh(label,bus,color,isMain){
   const mc=document.createElement('div');mc.className='master-ch'+(isMain?' main':'');
   const lbl=document.createElement('div');lbl.className='master-label';lbl.style.cssText=`color:${color};`;lbl.textContent=label;
-  // Master = stereo L/R, Aux/FX = mono
-  const vu = isMain ? createVUMeter() : createVUMeterMono();
+  const vu=createVUMeter();
 
-  // For stereo L/R metering on MASTER only — aux/fx are mono
-  let anEntry;
-  if(isMain){
-    const splitter = ctx.createChannelSplitter(2);
-    const anL=ctx.createAnalyser();anL.fftSize=1024;const bufL=new Uint8Array(anL.fftSize);
-    const anR=ctx.createAnalyser();anR.fftSize=1024;const bufR=new Uint8Array(anR.fftSize);
-    bus.connect(splitter);
-    splitter.connect(anL,0);
-    splitter.connect(anR,1);
-    anEntry = {vu, anL, anR, bufL, bufR, stereo:true};
-  } else {
-    const an=ctx.createAnalyser();an.fftSize=1024;const buf=new Uint8Array(an.fftSize);
-    bus.connect(an);
-    anEntry = {vu, an, buf, stereo:false};
-  }
+  // For stereo L/R metering, use a ChannelSplitter
+  // This lets us measure L and R independently so panning shows on the VU
+  const splitter = ctx.createChannelSplitter(2);
+  const anL=ctx.createAnalyser();anL.fftSize=1024;const bufL=new Uint8Array(anL.fftSize);
+  const anR=ctx.createAnalyser();anR.fftSize=1024;const bufR=new Uint8Array(anR.fftSize);
+  bus.connect(splitter);
+  splitter.connect(anL,0); // L channel
+  splitter.connect(anR,1); // R channel
 
   const fdr=createFader({min:-60,max:10,value:0,height:120,onChange:v=>{if(mPwrOn)bus.gain.value=dbToGain(v);}});
 
@@ -3051,7 +3104,8 @@ function makeMasterCh(label,bus,color,isMain){
 
   mc.appendChild(lbl);mc.appendChild(mPwrBtn);mc.appendChild(vu.el);mc.appendChild(fdr.el);
   masterRow.appendChild(mc);
-  masterAnalysers.push(anEntry);
+  // Store both L and R analysers for stereo metering
+  masterAnalysers.push({vu, anL, anR, bufL, bufR, stereo:true});
 }
 makeMasterCh('MASTER',masterBus,'#e8a020',true);
 makeMasterCh('AUX 1', aux1Bus, '#20c8e8',false);
@@ -3070,7 +3124,248 @@ pflMc.appendChild(Object.assign(document.createElement('div'),{style:'font-size:
 masterRow.appendChild(pflMc);
 right.appendChild(masterRow);
 
-// FX  (digital-only)
+// ── MASTER BUS PROCESSOR PANEL (ninja-only) ──
+const masterProcPanel = document.createElement('div');
+masterProcPanel.className = 'digital-only';
+masterProcPanel.style.cssText = `
+  background:#0e0e16;
+  border:1px solid #3a2060;
+  border-radius:6px;
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:340px;
+`;
+
+// Header
+const mpHeader = document.createElement('div');
+mpHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+const mpTitle = document.createElement('div');
+mpTitle.style.cssText = "font-family:'Orbitron',sans-serif;font-size:9px;color:var(--purple);letter-spacing:3px;";
+mpTitle.textContent = '⚡ MASTER BUS PROCESSOR';
+const mpBypassBtn = document.createElement('button');
+mpBypassBtn.style.cssText = `font-family:'Share Tech Mono',monospace;font-size:8px;padding:2px 8px;border:1px solid #555;border-radius:2px;background:#1a1a1a;color:var(--dim);cursor:pointer;letter-spacing:1px;transition:all .2s;`;
+mpBypassBtn.textContent = 'BYPASS';
+mpBypassBtn.title = 'Activar/desactivar Master Processor';
+mpBypassBtn.addEventListener('click', () => {
+  connectMasterProc(!masterProcActive);
+  mpBypassBtn.textContent = masterProcActive ? 'ACTIVE' : 'BYPASS';
+  mpBypassBtn.style.background = masterProcActive ? '#1a0a2a' : '#1a1a1a';
+  mpBypassBtn.style.borderColor = masterProcActive ? 'var(--purple)' : '#555';
+  mpBypassBtn.style.color = masterProcActive ? 'var(--purple)' : 'var(--dim)';
+  mpBypassBtn.style.boxShadow = masterProcActive ? '0 0 8px #c080ff44' : 'none';
+  showToast(masterProcActive ? '⚡ Master Processor ACTIVO' : '⚡ Master Processor BYPASS');
+});
+mpHeader.appendChild(mpTitle);
+mpHeader.appendChild(mpBypassBtn);
+masterProcPanel.appendChild(mpHeader);
+
+// ── EQ GRÁFICO 10 BANDAS ──
+const eqGfxSection = document.createElement('div');
+eqGfxSection.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
+const eqGfxTitle = document.createElement('div');
+eqGfxTitle.style.cssText = "font-size:8px;color:#888;letter-spacing:2px;text-align:center;font-family:'Share Tech Mono',monospace;";
+eqGfxTitle.textContent = '— EQ GRÁFICO 10 BANDAS —';
+eqGfxSection.appendChild(eqGfxTitle);
+
+const eqGfxBands = document.createElement('div');
+eqGfxBands.style.cssText = 'display:flex;gap:3px;align-items:flex-end;justify-content:center;';
+
+// Canvas for EQ curve
+const eqGfxCanvas = document.createElement('canvas');
+eqGfxCanvas.width = 320; eqGfxCanvas.height = 60;
+eqGfxCanvas.style.cssText = 'width:320px;height:60px;border-radius:3px;border:1px solid #2a2a3a;background:#0a0a12;display:block;margin:0 auto;';
+
+const EQ_FADER_HEIGHT = 80;
+const EQ_FADER_RANGE = 15; // ±15dB for graphic EQ
+const masterEQValues = new Array(10).fill(0);
+
+const eqFaderEls = [];
+
+MASTER_EQ_FREQS.forEach((freq, idx) => {
+  const col = document.createElement('div');
+  col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;';
+
+  // Mini fader track
+  const track = document.createElement('div');
+  track.style.cssText = `width:10px;height:${EQ_FADER_HEIGHT}px;background:#0d0d0d;border-radius:5px;border:1px solid #2a2a3a;position:relative;cursor:ns-resize;user-select:none;touch-action:none;`;
+
+  // 0dB center line
+  const centerLine = document.createElement('div');
+  centerLine.style.cssText = 'position:absolute;width:100%;height:1px;background:#333;top:50%;';
+  track.appendChild(centerLine);
+
+  // Fader cap
+  const cap = document.createElement('div');
+  cap.style.cssText = 'width:18px;height:10px;background:linear-gradient(180deg,#6040a0,#3a2060);border:1px solid #8060c0;border-radius:2px;position:absolute;left:50%;transform:translateX(-50%);top:50%;margin-top:-5px;cursor:ns-resize;box-shadow:0 1px 3px #0008;';
+  track.appendChild(cap);
+
+  // Value label
+  const valLabel = document.createElement('div');
+  valLabel.style.cssText = "font-size:7px;color:var(--dim);text-align:center;font-family:'Share Tech Mono',monospace;min-width:24px;";
+  valLabel.textContent = '0';
+
+  // Freq label
+  const freqLabel = document.createElement('div');
+  freqLabel.style.cssText = "font-size:6px;color:#555;text-align:center;font-family:'Share Tech Mono',monospace;";
+  freqLabel.textContent = freq >= 1000 ? (freq/1000)+'k' : freq;
+
+  function updateFromNorm(norm) {
+    // norm: 0=bottom(-15dB), 1=top(+15dB), 0.5=center(0dB)
+    const db = (norm - 0.5) * 2 * EQ_FADER_RANGE;
+    masterEQValues[idx] = db;
+    masterEQFilters[idx].gain.value = db;
+    const topPct = (1 - norm) * 100;
+    cap.style.top = topPct + '%';
+    cap.style.marginTop = '-5px';
+    valLabel.textContent = db >= 0 ? '+'+db.toFixed(0) : db.toFixed(0);
+    valLabel.style.color = Math.abs(db) > 0.5 ? 'var(--purple)' : 'var(--dim)';
+    drawMasterEQCurve();
+  }
+
+  // Drag logic
+  let dragging = false, startY = 0, startNorm = 0.5;
+  function getNorm() {
+    const db = masterEQValues[idx];
+    return (db / (2 * EQ_FADER_RANGE)) + 0.5;
+  }
+  function onDown(e) {
+    dragging = true; startY = e.clientY ?? e.touches?.[0]?.clientY;
+    startNorm = getNorm();
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if(!dragging) return;
+    const y = e.clientY ?? e.touches?.[0]?.clientY;
+    const dy = (y - startY) / EQ_FADER_HEIGHT;
+    const norm = Math.max(0, Math.min(1, startNorm - dy));
+    updateFromNorm(norm);
+  }
+  function onUp() { dragging = false; }
+  cap.addEventListener('mousedown', onDown);
+  cap.addEventListener('touchstart', onDown, {passive:false});
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, {passive:false});
+  document.addEventListener('mouseup', onUp);
+  document.addEventListener('touchend', onUp);
+  cap.addEventListener('dblclick', () => updateFromNorm(0.5)); // reset
+
+  col.appendChild(track);
+  col.appendChild(valLabel);
+  col.appendChild(freqLabel);
+  eqGfxBands.appendChild(col);
+  eqFaderEls.push({cap, valLabel, updateFromNorm, getNorm});
+});
+
+eqGfxSection.appendChild(eqGfxBands);
+eqGfxSection.appendChild(eqGfxCanvas);
+
+// Draw EQ curve
+function drawMasterEQCurve() {
+  const cvs = eqGfxCanvas;
+  const g = cvs.getContext('2d');
+  g.clearRect(0,0,cvs.width,cvs.height);
+  g.fillStyle='#0a0a12'; g.fillRect(0,0,cvs.width,cvs.height);
+  // Grid
+  g.strokeStyle='#1a1a2a'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(0,cvs.height/2); g.lineTo(cvs.width,cvs.height/2); g.stroke();
+  // Curve approximation through bands
+  const pts = MASTER_EQ_FREQS.map((freq, i) => {
+    const logMin = Math.log10(20), logMax = Math.log10(20000);
+    const x = ((Math.log10(freq) - logMin) / (logMax - logMin)) * cvs.width;
+    const y = cvs.height/2 - (masterEQValues[i] / EQ_FADER_RANGE) * (cvs.height/2 - 4);
+    return {x, y};
+  });
+  g.beginPath();
+  g.moveTo(0, cvs.height/2);
+  pts.forEach((p,i) => {
+    if(i===0) g.lineTo(p.x, p.y);
+    else {
+      const prev = pts[i-1];
+      const cx = (prev.x + p.x)/2;
+      g.bezierCurveTo(cx, prev.y, cx, p.y, p.x, p.y);
+    }
+  });
+  g.lineTo(cvs.width, cvs.height/2);
+  g.strokeStyle='#9060e0'; g.lineWidth=1.5; g.stroke();
+  // Fill
+  g.lineTo(cvs.width, cvs.height/2);
+  g.closePath();
+  g.fillStyle='rgba(144,96,224,0.15)'; g.fill();
+}
+drawMasterEQCurve();
+
+masterProcPanel.appendChild(eqGfxSection);
+
+// Divider
+const mpDivider = document.createElement('div');
+mpDivider.style.cssText = 'height:1px;background:#2a2a3a;';
+masterProcPanel.appendChild(mpDivider);
+
+// ── MASTER COMPRESSOR ──
+const masterCompSection = document.createElement('div');
+masterCompSection.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+const masterCompTitle = document.createElement('div');
+masterCompTitle.style.cssText = "font-size:8px;color:#888;letter-spacing:2px;text-align:center;font-family:'Share Tech Mono',monospace;";
+masterCompTitle.textContent = '— COMPRESOR MASTER —';
+masterCompSection.appendChild(masterCompTitle);
+
+const masterCompKnobs = document.createElement('div');
+masterCompKnobs.style.cssText = 'display:flex;gap:4px;justify-content:center;flex-wrap:wrap;';
+
+// GR meter for master comp
+const masterGRWrap = document.createElement('div');
+masterGRWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
+const masterGRLabel = document.createElement('div');
+masterGRLabel.style.cssText = "font-size:7px;color:var(--dim);font-family:'Share Tech Mono',monospace;letter-spacing:.5px;";
+masterGRLabel.textContent = 'GR';
+const masterGRTrack = document.createElement('div');
+masterGRTrack.style.cssText = 'flex:1;height:5px;background:#111;border-radius:3px;border:1px solid #2a2a2a;position:relative;overflow:hidden;min-width:120px;';
+const masterGRBar = document.createElement('div');
+masterGRBar.style.cssText = 'position:absolute;right:0;top:0;height:100%;width:0;border-radius:3px;background:linear-gradient(to left,#e87020,#e8c020);transition:width .05s;';
+masterGRTrack.appendChild(masterGRBar);
+masterGRWrap.appendChild(masterGRLabel);
+masterGRWrap.appendChild(masterGRTrack);
+
+// Makeup gain display
+const masterMakeupLabel = document.createElement('div');
+masterMakeupLabel.style.cssText = "font-size:7px;color:#888;font-family:'Share Tech Mono',monospace;text-align:center;";
+masterMakeupLabel.textContent = 'MAKEUP: 0 dB';
+
+[
+  {label:'THR',  min:-60, max:0,   val:-24, unit:'dB', dec:0, fn:v=>{ masterComp.threshold.value=v; }},
+  {label:'RATIO',min:1,   max:20,  val:2,   unit:':1', dec:1, fn:v=>{ masterComp.ratio.value=v; }},
+  {label:'ATK',  min:0,   max:1,   val:0.003,unit:'s', dec:3, fn:v=>{ masterComp.attack.value=v; }},
+  {label:'REL',  min:0,   max:1,   val:0.25, unit:'s', dec:2, fn:v=>{ masterComp.release.value=v; }},
+  {label:'KNEE', min:0,   max:30,  val:6,   unit:'dB', dec:0, fn:v=>{ masterComp.knee.value=v; }},
+  {label:'MKUP', min:0,   max:24,  val:0,   unit:'dB', dec:0, fn:v=>{
+    masterMakeupGain.gain.value = Math.pow(10, v/20);
+    masterMakeupLabel.textContent = 'MAKEUP: ' + (v>=0?'+':'')+v+' dB';
+  }},
+].forEach(p => {
+  const k = createKnob({label:p.label, min:p.min, max:p.max, value:p.val, size:28, color:'#c080ff', unit:p.unit, decimals:p.dec, onChange:p.fn});
+  masterCompKnobs.appendChild(k.el);
+});
+
+masterCompSection.appendChild(masterCompKnobs);
+masterCompSection.appendChild(masterGRWrap);
+masterCompSection.appendChild(masterMakeupLabel);
+masterProcPanel.appendChild(masterCompSection);
+
+right.appendChild(masterProcPanel);
+
+// Update master GR meter in animation loop
+function updateMasterGR() {
+  if(masterProcActive) {
+    const gr = masterComp.reduction; // negative dB
+    const pct = Math.min(100, Math.abs(gr) / 30 * 100);
+    masterGRBar.style.width = pct + '%';
+  } else {
+    masterGRBar.style.width = '0%';
+  }
+}
+// Will be called from main animation loop below
 const fxSec=document.createElement('div');fxSec.className='fx-section digital-only';
 function buildFX(title,params,extraEl){
   const u=document.createElement('div');u.className='fx-unit';
@@ -3219,7 +3514,6 @@ stemPanel.appendChild(stemHeader);
 // Set selector buttons
 const stemSets = [
   { id:'set2', name:'Pop Fusion 10ch', difficulty:'INTERMEDIO', color:'#e8a020' },
-  { id:'set3', name:'Salsa en Vivo 16ch', difficulty:'AVANZADO', color:'#e82060' },
 ];
 
 const setRow = document.createElement('div');
@@ -3490,7 +3784,7 @@ function drawEQ() {
       // We map so that -18dBFS (typical program level) sits around 0dB on EQ
       // dBFS = minDecibels + val * (maxDecibels - minDecibels)
       // dBFS = -60 + val * 60
-      // On EQ display: 0dB line = center, ±24dB = full range
+      // On EQ display: 0dB line = center, ±32dB = full range
       // So: displayDB = dBFS + 18  (shift so -18dBFS = 0 on display)
       function valToDisplayDb(val){
         const dBFS = -60 + val * 60;  // -60 to 0 dBFS
@@ -3718,6 +4012,30 @@ const playBtn = document.getElementById('playAll');
 const stopBtn = document.getElementById('stopAll');
 const loopBtn = document.getElementById('loopBtn');
 
+// ── FOH OUTPUT SELECTOR ──
+const fohOutSelect  = document.getElementById('fohOutSelect');
+const fohOutScanBtn = document.getElementById('fohOutScanBtn');
+
+fohOutScanBtn.addEventListener('click', scanFohOutputs);
+
+fohOutSelect.addEventListener('change', async () => {
+  const deviceId = fohOutSelect.value;
+  fohOutScanBtn.textContent = '...';
+  fohOutScanBtn.disabled = true;
+  try {
+    await setFohOutput(deviceId);
+    const label = fohOutSelect.options[fohOutSelect.selectedIndex]?.textContent || deviceId;
+    showToast('🔊 FOH → ' + label);
+    fohOutScanBtn.classList.toggle('active', deviceId !== 'default');
+    fohOutScanBtn.style.borderColor = deviceId !== 'default' ? 'var(--accent)' : '#444';
+    fohOutScanBtn.style.color = deviceId !== 'default' ? 'var(--accent)' : 'var(--dim)';
+  } catch(e) {
+    showToast('Error al cambiar salida FOH: ' + e.message);
+  }
+  fohOutScanBtn.textContent = '⟳';
+  fohOutScanBtn.disabled = false;
+});
+
 // ── PFL OUTPUT SELECTOR ──
 const pflOutSelect  = document.getElementById('pflOutSelect');
 const pflOutScanBtn = document.getElementById('pflOutScanBtn');
@@ -3730,6 +4048,7 @@ navigator.mediaDevices.addEventListener('devicechange', async () => {
   // Small delay to let the OS register the new device
   await new Promise(r => setTimeout(r, 500));
   await scanPflOutputs();
+  await scanFohOutputs();
   // Also refresh input devices in channel dropdowns
   if(inputManager._permStream || inputManager.stream){
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -3742,11 +4061,6 @@ navigator.mediaDevices.addEventListener('devicechange', async () => {
     }
   }
   showToast('🔌 Dispositivo de audio detectado — lista actualizada');
-
-  // Recover AudioContext if it got suspended due to device change
-  if(ctx.state === 'suspended' || ctx.state === 'interrupted'){
-    try{ await ctx.resume(); showToast('🔊 Motor de audio recuperado'); }catch(e){}
-  }
 });
 
 pflOutSelect.addEventListener('change', async () => {
@@ -3770,6 +4084,7 @@ setupPflOutput().then(() => {
   // Escanear salidas si ya tenemos permiso
   if(inputManager._permStream || inputManager.stream){
     scanPflOutputs();
+    scanFohOutputs();
   }
 });
 
@@ -3902,7 +4217,7 @@ function meterLoop(){
 
   masterAnalysers.forEach(m=>{
     if(m.stereo){
-      // True stereo L/R — only for MASTER
+      // True stereo L/R metering
       m.anL.getByteTimeDomainData(m.bufL);
       m.anR.getByteTimeDomainData(m.bufR);
       let sL=0, sR=0;
@@ -3912,14 +4227,13 @@ function meterLoop(){
       }
       const dbL=gainToDB(Math.sqrt(sL/m.bufL.length));
       const dbR=gainToDB(Math.sqrt(sR/m.bufR.length));
-      m.vu.setLevel(0,dbL);
-      m.vu.setLevel(1,dbR);
+      m.vu.setLevel(0,dbL); // L bar
+      m.vu.setLevel(1,dbR); // R bar
     } else {
-      // Mono — AUX and FX buses
       m.an.getByteTimeDomainData(m.buf);
       let s2=0;for(let i=0;i<m.buf.length;i++){const s=(m.buf[i]-128)/128;s2+=s*s;}
       const db=gainToDB(Math.sqrt(s2/m.buf.length));
-      m.vu.setLevel(0,db);
+      m.vu.setLevel(0,db);m.vu.setLevel(1,db);
     }
   });
 
@@ -3927,6 +4241,9 @@ function meterLoop(){
   let ps=0;for(let i=0;i<pflBuf2.length;i++){const s=(pflBuf2[i]-128)/128;ps+=s*s;}
   const pdb=gainToDB(Math.sqrt(ps/pflBuf2.length));
   pflVU.setLevel(0,pdb);pflVU.setLevel(1,pdb+(Math.random()*.6-.3));
+
+  // Master Bus Processor GR meter
+  updateMasterGR();
 
   requestAnimationFrame(meterLoop);
 }
@@ -3985,8 +4302,9 @@ document.getElementById('permGrantBtn').addEventListener('click', async () => {
     const audioIn = devices.filter(d => d.kind === 'audioinput' && d.deviceId !== '');
     inputManager._scannedDevices = audioIn; // cache for input manager
 
-    // Escanear salidas para PFL ahora que tenemos permiso
+    // Escanear salidas para PFL y FOH ahora que tenemos permiso
     setTimeout(scanPflOutputs, 500);
+    setTimeout(scanFohOutputs, 550);
 
     // Success visual
     icon.innerHTML = `
@@ -4118,7 +4436,7 @@ const TOUR_STEPS = [
       <strong>HI</strong> — realce/corte de agudos (8kHz)<br>
       <strong>MID</strong> — medios con frecuencia <strong>sweepable</strong> (200Hz–5kHz)<br>
       <strong>LO</strong> — graves (80Hz)<br><br>
-      Rango: <strong>±24 dB</strong>. Doble clic en un knob para resetearlo a 0.`,
+      Rango: <strong>±32 dB</strong>. Doble clic en un knob para resetearlo a 0.`,
     cardPos: (r, cw) => ({
       top:  r.top,
       left: r.right + 20
