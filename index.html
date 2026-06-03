@@ -1010,23 +1010,18 @@ async function handleSubmit(){
   // 4. Reemplaza los valores de abajo con tus entry IDs
   // 5. Reemplaza FORM_ID con el ID de tu formulario
 
-  const FORM_ID      = 'TU_FORM_ID_AQUI'; // e.g. 1FAIpQLSd...
-  const ENTRY_EMAIL  = 'entry.000000001';  // reemplaza con tu entry ID
-  const ENTRY_ROLE   = 'entry.000000002';  // reemplaza con tu entry ID
-  const ENTRY_COUNTRY= 'entry.000000003';  // reemplaza con tu entry ID
-
-  const formUrl = `https://docs.google.com/forms/d/e/${FORM_ID}/formResponse`;
-  const body = new FormData();
-  body.append(ENTRY_EMAIL,   email);
-  body.append(ENTRY_ROLE,    role);
-  body.append(ENTRY_COUNTRY, country);
+  // Apps Script webhook — guarda directo en Google Sheets
+  const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzvagYbrAAf6rFO1Jsqh8e9QIDxCUhrY6jW062mQkN1-UgaKvP_H8SSf5r1-I4TFRZn/exec';
 
   try {
-    // Google Forms acepta CORS via no-cors — no retorna respuesta pero sí guarda
-    await fetch(formUrl, { method:'POST', mode:'no-cors', body });
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role, country })
+    });
   } catch(e){
-    // no-cors siempre "falla" en el catch pero igual guarda — es esperado
-    console.log('Form submitted (no-cors expected behavior)');
+    console.log('Apps Script fetch:', e);
   }
 
   // Save to localStorage so we remember this user
