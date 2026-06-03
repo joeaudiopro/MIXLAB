@@ -1280,23 +1280,31 @@ let masterProcActive = false; // starts bypassed
 const masterProcBypassGain = ctx.createGain();
 masterProcBypassGain.gain.value = 0; // off by default
 
-// Connect chain: masterBus splits to direct (existing monitorGain) and proc chain
-masterEQFilters[0].connect(masterEQFilters.length > 1 ? masterEQFilters[1] : masterComp); // already chained above
+// Master Proc chain: masterBus → EQ → Comp → MakeupGain → monitorGain
+// La cadena SIEMPRE está conectada. El bypass se hace con masterProcBypassGain:
+//   gain=0 → silencia la cadena proc (bypass real: masterBus → monitorGain directo)
+//   gain=1 → activa la cadena proc
 masterEQFilters[masterEQFilters.length-1].connect(masterComp);
 masterComp.connect(masterMakeupGain);
 masterMakeupGain.connect(masterProcBypassGain);
 masterProcBypassGain.connect(monitorGain);
+// La conexión directa masterBus → monitorGain es la que siempre está activa (bypass)
+// Al activar proc: desconectamos la directa y activamos la cadena
 
 function connectMasterProc(active) {
   masterProcActive = active;
-  masterProcBypassGain.gain.setTargetAtTime(active ? 1 : 0, ctx.currentTime, 0.01);
-  // When proc is active, remove direct masterBus → monitorGain to avoid parallel
   if(active) {
+    // Activar proc: desconectar ruta directa, conectar por la cadena
     try { masterBus.disconnect(monitorGain); } catch(e){}
     masterBus.connect(masterEQFilters[0]);
+    masterProcBypassGain.gain.setTargetAtTime(1, ctx.currentTime, 0.02);
   } else {
-    try { masterBus.disconnect(masterEQFilters[0]); } catch(e){}
-    try { masterBus.connect(monitorGain); } catch(e){}
+    // Bypass: desconectar cadena, restaurar ruta directa
+    masterProcBypassGain.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+    setTimeout(() => {
+      try { masterBus.disconnect(masterEQFilters[0]); } catch(e){}
+      try { masterBus.connect(monitorGain); } catch(e){}
+    }, 100);
   }
 }
 
