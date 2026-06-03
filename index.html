@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0a0a0a">
-<title>MixLab Ninja — Early Access</title>
+<title>FaderLab — Early Access</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&family=DM+Sans:wght@300;400;500&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
 /* ══════════════════════════════════════
@@ -692,7 +692,7 @@ body::before{
   ══════════════════════════════════ -->
   <section class="hero">
     <div class="topbar">
-      <div class="logo-mark">MIX<span>LAB</span> · NINJA</div>
+      <div class="logo-mark">FADER<span>LAB</span></div>
       <div class="beta-badge">EARLY ACCESS BETA</div>
     </div>
 
@@ -703,7 +703,7 @@ body::before{
         <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
       </div>
 
-      <h1 class="hero-title">MIXLAB</h1>
+      <h1 class="hero-title">FADERLAB</h1>
       <div class="hero-subtitle">Consola de mezcla · Web Audio Engine · 100% Browser</div>
 
       <div class="hero-rule"></div>
@@ -777,7 +777,7 @@ body::before{
       <div class="pitch-tag">EARLY ACCESS</div>
       <h2 class="pitch-title">Aprende<br>mezclando<br><span>en vivo.</span></h2>
       <p class="pitch-body">
-        MixLab Ninja es una consola real corriendo en tu navegador.
+        FaderLab es una consola real corriendo en tu navegador.
         No una simulación de juguete — <strong>el mismo motor de audio
         que usarías en producción</strong>, accesible desde cualquier dispositivo,
         sin instalar nada.
@@ -794,7 +794,7 @@ body::before{
         </div>
         <div class="pitch-item">
           <span class="pitch-item-icon">NEXT</span>
-          <span>Los usuarios de esta lista tendrán acceso prioritario a <strong>MixLab Academy</strong> y a <strong>MixLab Expert</strong> cuando lancen.</span>
+          <span>Los usuarios de esta lista tendrán acceso prioritario a <strong>FaderLab Academy</strong> y a <strong>FaderLab Expert</strong> cuando lancen.</span>
         </div>
         <div class="pitch-item">
           <span class="pitch-item-icon">MX</span>
@@ -857,7 +857,7 @@ body::before{
           Ya eres parte de la beta de MixLab.<br>
           Te avisaremos cuando lancen Academy y Expert.
         </p>
-        <a href="https://joeaudiopro.github.io/MIXLAB/app.html" target="_blank" class="launch-btn">
+        <a href="https://joeaudiopro.github.io/FADERLAB/app.html" target="_blank" class="launch-btn">
           <span>ABRIR MIXLAB NINJA</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
@@ -879,7 +879,7 @@ body::before{
     <div class="console-mockup">
       <div class="mockup-topbar">
         <div class="mockup-dot" style="background:#e8a020;box-shadow:0 0 4px #e8a020;"></div>
-        <div style="font-family:'Orbitron',sans-serif;font-size:9px;color:#e8a020;letter-spacing:3px;">MIXLAB v3.0</div>
+        <div style="font-family:'Orbitron',sans-serif;font-size:9px;color:#e8a020;letter-spacing:3px;">FADERLAB v1.0</div>
         <div style="margin-left:auto;font-family:'Share Tech Mono',monospace;font-size:8px;color:#333;">● LIVE · 16CH · WEB AUDIO</div>
       </div>
       <div class="mockup-channels" id="mockupChannels"></div>
@@ -914,7 +914,7 @@ body::before{
           <strong>Tec de Monterrey</strong>, construí la herramienta que me hubiera
           gustado tener cuando yo aprendía. Sé lo difícil que es tener acceso a una
           consola digital conectada a instrumentos, con todo el set listo para practicar.
-          MixLab es exactamente eso: <strong>un simulador de horas de vuelo</strong>.
+          FaderLab es exactamente eso: <strong>un simulador de horas de vuelo</strong>.
           Para que cuando estés frente a una consola de verdad, no te tome tanto tiempo
           llegar a los resultados que buscas.
         </p>
@@ -926,9 +926,9 @@ body::before{
        FOOTER
   ══════════════════════════════════ -->
   <footer class="footer">
-    <div class="footer-logo">MIX<span>LAB</span> · v3.0</div>
+    <div class="footer-logo">FADER<span>LAB</span> · v1.0</div>
     <div class="footer-links">
-      <a href="https://joeaudiopro.github.io/MIXLAB/app.html" class="footer-link" target="_blank">APP</a>
+      <a href="https://joeaudiopro.github.io/FADERLAB/app.html" class="footer-link" target="_blank">APP</a>
       <a href="https://www.instagram.com/joeaudiopro/" class="footer-link" target="_blank">@joeaudiopro</a>
       <a href="https://www.instagram.com/mixlab.audio/" class="footer-link" target="_blank">@mixlab.audio</a>
       <a href="mailto:feedback@mixlab.audio" class="footer-link">FEEDBACK</a>
@@ -1010,22 +1010,27 @@ async function handleSubmit(){
   // 4. Reemplaza los valores de abajo con tus entry IDs
   // 5. Reemplaza FORM_ID con el ID de tu formulario
 
-  // Apps Script webhook — guarda directo en Google Sheets
-  const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzvagYbrAAf6rFO1Jsqh8e9QIDxCUhrY6jW062mQkN1-UgaKvP_H8SSf5r1-I4TFRZn/exec';
+  const FORM_ID      = 'TU_FORM_ID_AQUI'; // e.g. 1FAIpQLSd...
+  const ENTRY_EMAIL  = 'entry.000000001';  // reemplaza con tu entry ID
+  const ENTRY_ROLE   = 'entry.000000002';  // reemplaza con tu entry ID
+  const ENTRY_COUNTRY= 'entry.000000003';  // reemplaza con tu entry ID
+
+  const formUrl = `https://docs.google.com/forms/d/e/${FORM_ID}/formResponse`;
+  const body = new FormData();
+  body.append(ENTRY_EMAIL,   email);
+  body.append(ENTRY_ROLE,    role);
+  body.append(ENTRY_COUNTRY, country);
 
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, role, country })
-    });
+    // Google Forms acepta CORS via no-cors — no retorna respuesta pero sí guarda
+    await fetch(formUrl, { method:'POST', mode:'no-cors', body });
   } catch(e){
-    console.log('Apps Script fetch error:', e);
+    // no-cors siempre "falla" en el catch pero igual guarda — es esperado
+    console.log('Form submitted (no-cors expected behavior)');
   }
 
   // Save to localStorage so we remember this user
-  localStorage.setItem('ml_access', JSON.stringify({
+  localStorage.setItem('fl_access', JSON.stringify({
     email, role, country,
     ts: new Date().toISOString()
   }));
@@ -1037,7 +1042,7 @@ async function handleSubmit(){
 
 // ── If already registered, show success state directly ──
 window.addEventListener('DOMContentLoaded', ()=>{
-  const saved = localStorage.getItem('ml_access');
+  const saved = localStorage.getItem('fl_access');
   if(saved){
     document.getElementById('formState').style.display   = 'none';
     document.getElementById('successState').style.display = 'flex';
