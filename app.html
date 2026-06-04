@@ -561,7 +561,7 @@ body{background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monosp
   50%{transform:scaleY(0.35);}
 }
 
-/* MIXLAB wordmark */
+/* FADERLAB wordmark */
 .splash-title{
   font-family:'Bebas Neue',sans-serif;
   font-size:clamp(72px,12vw,110px);
@@ -944,12 +944,12 @@ body.splash-active #appRoot{
       <div class="splash-eq-bar"></div>
     </div>
 
-    <div class="splash-title">MIXLAB</div>
+    <div class="splash-title">FADERLAB</div>
 
-    <div class="splash-tagline">Live Sound Console · Web Audio Engine</div>
+    <div class="splash-tagline">Live Audio Console · Web Audio Engine</div>
     <div class="splash-rule"></div>
     <div class="splash-credit">by <span>Joe Mendoza</span></div>
-    <div class="splash-version">v3.0 · Web Audio Engine</div>
+    <div class="splash-version">v1.0 · Web Audio Engine</div>
 
     <!-- Social links -->
     <div class="splash-social">
@@ -992,7 +992,7 @@ body.splash-active #appRoot{
   "></div>
 
   <div style="font-family:'Orbitron',sans-serif;font-size:.75rem;color:var(--accent);letter-spacing:4px;text-shadow:0 0 10px #e8a02055;">
-    MIXLAB <span style="font-size:.5rem;color:var(--dim);letter-spacing:2px;">v3.0</span>
+    FADERLAB <span style="font-size:.5rem;color:var(--dim);letter-spacing:2px;">v1.0</span>
   </div>
 
   <!-- big mic icon SVG -->
@@ -1049,7 +1049,7 @@ body.splash-active #appRoot{
 <div id="appRoot">
 
 <div class="topbar">
-  <h1>MIXLAB</h1>
+  <h1>FADERLAB</h1>
   <div style="display:flex;gap:5px;">
     <button class="btn play" id="playAll">▶ PLAY</button>
     <button class="btn stop" id="stopAll">■ STOP</button>
@@ -1093,7 +1093,7 @@ body.splash-active #appRoot{
   </div>
   <!-- NORMAL / NINJA MODE -->
   <button class="mode-btn" id="modeBtn">🥷 NINJA</button>
-  <span style="margin-left:auto;font-size:9px;color:var(--dim)">MixLab v3.0 · Joe Mendoza</span>
+  <span style="margin-left:auto;font-size:9px;color:var(--dim)">FaderLab · Joe Mendoza</span>
 </div>
 
 <!-- Toast notification -->
@@ -3589,7 +3589,7 @@ stemPanel.appendChild(stemList);
 right.appendChild(stemPanel);
 
 // ── LOAD STEM SET ──
-const BASE_URL = 'https://joeaudiopro.github.io/MIXLAB/stems/';
+const BASE_URL = 'https://joeaudiopro.github.io/FADERLAB/stems/';
 
 async function loadStemSet(setId, btn, statusEl){
   try {
